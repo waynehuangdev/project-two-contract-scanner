@@ -1,0 +1,9 @@
+node_modules/
+.wrangler/
+.dev.vars
+dist/
+
+# Real captured notices. Keep the hand-written fixture tracked, keep live
+# captures out of git — they are large and they churn every day.
+fixtures/notices-sample.json
+fixtures/step-zero-*.json

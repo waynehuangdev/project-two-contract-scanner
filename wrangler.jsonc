@@ -1,0 +1,21 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "contract-scanner",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-01-15",
+  "observability": { "enabled": true },
+
+  // Day 2 wires these up. Create with:
+  //   wrangler kv namespace create NOTICES
+  //   wrangler kv namespace create SCORES
+  // then paste the ids below and uncomment.
+  // "kv_namespaces": [
+  //   { "binding": "NOTICES", "id": "" },
+  //   { "binding": "SCORES", "id": "" }
+  // ],
+
+  "vars": {
+    // Trailing window the scanner fetches. 7 per the spec; not a user control.
+    "WINDOW_DAYS": "7"
+  }
+}

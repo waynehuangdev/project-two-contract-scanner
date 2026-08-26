@@ -1,0 +1,4 @@
+# Copy to .dev.vars for local `wrangler dev`. Never commit .dev.vars.
+# In production these are Worker secrets: `wrangler secret put SAM_API_KEY`
+SAM_API_KEY=
+ANTHROPIC_API_KEY=
