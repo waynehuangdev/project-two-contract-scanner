@@ -113,7 +113,7 @@
     "uiLink": "https://sam.gov/opp/a1b2c3d4e5f60007/view"
   },
   {
-    "_case": "UNPARSEABLE DEADLINE — must degrade to null rather than throwing or defaulting",
+    "_case": "UNPARSEABLE DEADLINE — must degrade to null rather than throwing or defaulting. Also a Web & digital notice via 518210, which replaced the dead 541430 after the 2026-08-26 harvest.",
     "noticeId": "a1b2c3d4e5f60008",
     "title": "Public-Facing Web Redesign and Section 508 Remediation",
     "solicitationNumber": "GS26P26D00000008",
@@ -123,7 +123,7 @@
     "baseType": "Combined Synopsis/Solicitation",
     "typeOfSetAsideDescription": "Total Small Business Set-Aside (FAR 19.5)",
     "responseDeadLine": "TBD — see attachment",
-    "naicsCode": "541430",
+    "naicsCode": "518210",
     "classificationCode": "D306",
     "description": "https://api.sam.gov/prod/opportunities/v1/noticedesc?noticeid=a1b2c3d4e5f60008",
     "uiLink": "https://sam.gov/opp/a1b2c3d4e5f60008/view"

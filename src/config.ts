@@ -12,11 +12,32 @@ import type { ServiceArea, SizeBand } from './types.ts';
  */
 export const SERVICE_AREAS: Record<ServiceArea, { label: string; naics: string[] }> = {
   'software-development': { label: 'Software development', naics: ['541511', '541519'] },
-  'web-digital': { label: 'Web & digital', naics: ['541511', '541430', '541810'] },
-  'data-analytics': { label: 'Data & analytics', naics: ['541512', '541618'] },
-  'it-support': { label: 'IT support & infrastructure', naics: ['541513', '541519'] },
+  'web-digital': { label: 'Web & digital', naics: ['541511', '541810', '518210'] },
+  'data-analytics': { label: 'Data & analytics', naics: ['541512', '541618', '518210'] },
+  'it-support': { label: 'IT support & infrastructure', naics: ['541519', '811212'] },
   cybersecurity: { label: 'Cybersecurity', naics: ['541512', '541519', '561621'] },
 };
+
+/**
+ * Codes removed after the 2026-08-26 harvest, and why. Kept as a record so the
+ * next person does not helpfully add them back:
+ *
+ *   541430 Graphic Design Services        — 0 records in the 7-day window
+ *   541513 Computer Facilities Management — 0 records in the 7-day window
+ *
+ * Both were replaced rather than simply dropped, because the code count is now
+ * a hard budget line: `ncode` takes one code per request, so every code in the
+ * union costs one request per refresh. Eight codes is what a ~10/day key
+ * affords with a daily refresh. Adding a ninth means a longer TTL or dropping
+ * another — this list is not free to extend.
+ *
+ *   518210 Data Processing, Hosting and Related Services
+ *   811212 Computer and Office Machine Repair and Maintenance
+ *
+ * One week is thin evidence for calling a code dead. Both are worth re-checking
+ * once the daily budget is better understood.
+ */
+export const RETIRED_NAICS = ['541430', '541513'] as const;
 
 /**
  * The union of every code any area cares about — 8 distinct codes across 5 areas.

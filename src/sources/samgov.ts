@@ -1,8 +1,8 @@
 import { ALLOWED_PTYPES } from '../config.ts';
 import type { DateWindow, Notice } from '../types.ts';
 import { SourceError, type FetchResult, type SourceAdapter } from './adapter.ts';
+import { SAM_SEARCH_URL } from '../lib/endpoint.ts';
 
-const SEARCH_URL = 'https://api.sam.gov/opportunities/v2/search';
 const PAGE_SIZE = 1000; // documented maximum
 const MAX_PAGES_PER_CODE = 2; // a 7-day window per NAICS code will not exceed this
 
@@ -53,9 +53,13 @@ export class SamGovAdapter implements SourceAdapter {
   // erasable is what lets `node --experimental-strip-types` run the real
   // modules in tests with no build step in between.
   private readonly apiKey: string;
+  private readonly searchUrl: string;
 
-  constructor(apiKey: string) {
+  // searchUrl is injectable so the endpoint the probe resolved can be passed
+  // in, and so tests can point at a local stub without patching global fetch.
+  constructor(apiKey: string, searchUrl: string = SAM_SEARCH_URL) {
     this.apiKey = apiKey;
+    this.searchUrl = searchUrl;
   }
 
   async fetchWindow({
@@ -76,7 +80,7 @@ export class SamGovAdapter implements SourceAdapter {
     // get, not five simultaneous 429s.
     for (const code of naicsCodes) {
       for (let page = 0; page < MAX_PAGES_PER_CODE; page++) {
-        const url = new URL(SEARCH_URL);
+        const url = new URL(this.searchUrl);
         url.searchParams.set('api_key', this.apiKey);
         url.searchParams.set('postedFrom', toSamDate(window.from));
         url.searchParams.set('postedTo', toSamDate(window.to));

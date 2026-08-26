@@ -35,21 +35,51 @@ import { dirname, join } from 'node:path';
 import { ALL_NAICS, ALLOWED_PTYPES } from '../src/config.ts';
 import { trailingWindow } from '../src/lib/window.ts';
 import { toSamDate } from '../src/sources/samgov.ts';
+import { resolveSearchUrl } from '../src/lib/endpoint.ts';
 
-const SEARCH_URL = 'https://api.sam.gov/opportunities/v2/search';
 const MAX_CALLS = 9; // leave one in reserve; capture-fixture needs it
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 
 const KEY = process.env.SAM_API_KEY;
 if (!KEY) {
-  console.error('SAM_API_KEY is not set.\n  SAM_API_KEY=xxxx npm run step-zero');
+  console.error('SAM_API_KEY is not set.');
+  console.error('  PowerShell:  $env:SAM_API_KEY="..." ; npm run step-zero');
+  console.error('  bash:        SAM_API_KEY=... npm run step-zero');
   process.exit(1);
 }
 
 const win = trailingWindow();
+
+// ---------------------------------------------------------------------------
+// Q0 · which base URL answers?
+//
+// Ahead of everything else, because getting this wrong makes every other
+// question return a 404 with an empty body — an error that says nothing about
+// which of five possible causes it is.
+// ---------------------------------------------------------------------------
+console.log(`\nSTEP ZERO — window ${win.from} … ${win.to} (${MAX_CALLS} calls max)`);
+console.log('\nQ0 · resolving the endpoint');
+const probe = await resolveSearchUrl(KEY, [
+  ['postedFrom', toSamDate(win.from)],
+  ['postedTo', toSamDate(win.to)],
+  ['ncode', '541511'],
+  ['limit', '1'],
+]);
+for (const a of probe.attempts) console.log(`   ${a.status}  ${a.url}`);
+
+if (!probe.resolved) {
+  console.error('\n  Could not reach the search endpoint. Run `npm run probe` for a diagnosis.');
+  if (probe.attempts.some((a) => a.bodyHead)) {
+    console.error(`  Last response body: ${probe.attempts.at(-1).bodyHead}`);
+  }
+  process.exit(1);
+}
+const SEARCH_URL = probe.resolved;
+writeFileSync(join(root, '.sam-endpoint'), SEARCH_URL + '\n');
+console.log(`   → ${SEARCH_URL}\n`);
 const log = [];
-let calls = 0;
-let rateLimit = { limit: null, remaining: null };
+let calls = probe.attempts.length; // the resolution requests count against the budget too
+let rateLimit = probe.attempts.at(-1)?.rateLimit ?? { limit: null, remaining: null };
 
 async function call(label, params) {
   if (calls >= MAX_CALLS) throw new Error(`Call budget (${MAX_CALLS}) exhausted before: ${label}`);
@@ -78,7 +108,12 @@ async function call(label, params) {
     totalRecords: json?.totalRecords ?? null,
     returned: json?.opportunitiesData?.length ?? null,
     rateLimit: { ...rateLimit },
-    error: res.ok ? null : body.slice(0, 300),
+    // Empty bodies are common on gateway errors, so record the status text and
+    // content type too — otherwise a failure logs as a bare number and the
+    // report is no more useful than the console output was.
+    error: res.ok
+      ? null
+      : `${res.status} ${res.statusText} [${res.headers.get('content-type') ?? 'no content-type'}] ${body.slice(0, 300)}`.trim(),
   };
   log.push(entry);
 
@@ -91,8 +126,6 @@ async function call(label, params) {
 
   return { res, json, body };
 }
-
-console.log(`\nSTEP ZERO — window ${win.from} … ${win.to} (${MAX_CALLS} calls max)\n`);
 
 // ---------------------------------------------------------------------------
 // Q3 first, deliberately. If one request CAN carry all 8 codes, questions 1 and

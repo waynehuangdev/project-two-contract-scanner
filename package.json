@@ -7,8 +7,10 @@
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
     "typecheck": "tsc --noEmit",
-    "test": "node --experimental-strip-types --experimental-test-isolation=none --test test/normalize.test.mjs",
+    "test": "node --experimental-strip-types --experimental-test-isolation=none --test test/normalize.test.mjs test/endpoint.test.mjs test/apikey.test.mjs",
     "build-fixture": "node --experimental-strip-types scripts/build-fixture.mjs",
+    "probe": "node --experimental-strip-types scripts/probe-endpoint.mjs",
+    "harvest": "node --experimental-strip-types scripts/harvest.mjs",
     "step-zero": "node --experimental-strip-types scripts/step-zero.mjs",
     "capture-fixture": "node --experimental-strip-types scripts/capture-fixture.mjs"
   },

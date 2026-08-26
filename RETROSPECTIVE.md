@@ -8,23 +8,40 @@ Day 4 recall is not a reliable source of Day 1 numbers.
 
 ## Step zero — the real numbers
 
-**Not yet run.** The API key was not obtained on Day 1, so step zero moves to
-the top of Day 2. `npm run step-zero` writes its raw output to
-`fixtures/step-zero-<date>.json`; paste the summary here when it does.
+Ran 2026-08-26 (Day 1, after two false starts — see below). Window 08/20–08/26.
+8 requests spent, 7 of 8 NAICS codes queried before the self-imposed budget cap.
+`561621` (Security Systems Services) was never reached.
 
 | Question | Expected | Actual |
 |---|---|---|
-| Daily request budget (from `X-RateLimit-Limit`) | 10 (public key) | _pending_ |
-| 7-day volume, awards excluded, all 8 NAICS codes | ≥ 20 to proceed | _pending_ |
-| Does `ncode` accept multiple codes in one request? | No, per docs | _pending_ |
-| Does a description fetch decrement the same quota? | Assume yes | _pending_ |
-| Notices stating an estimated value | Few | _pending_ |
+| Daily request budget | 10 (public key) | **Unknown — api.data.gov sends no `X-RateLimit` headers on this endpoint.** No 429 after 10 requests in a day. |
+| Working endpoint | `api.sam.gov/opportunities/v2/search` | **`api.sam.gov/prod/opportunities/v2/search`** — the form without `/prod/` 404s |
+| 7-day volume, awards excluded | ≥ 20 to proceed | **59 usable notices** — viable |
+| Does `ncode` accept multiple codes? | No | Untested — budget went to harvesting instead |
+| Notices stating a response deadline | Few | **59/59.** Every one. |
+| Notices carrying a set-aside | — | **51/59** |
+| Notices with a description link | — | **59/59** (still one request each to read) |
+| Notices stating an estimated value | Few | **0/59.** Value-band filtering is dead on arrival — see below. |
 
----
+### Volume by code
+
+| NAICS | Records | Note |
+|---|---|---|
+| 541519 Other Computer Related Services | **36** | 61% of the entire corpus |
+| 541511 Custom Computer Programming | 9 | |
+| 541512 Computer Systems Design | 9 | |
+| 541810 Advertising Agencies | 4 | |
+| 541618 Other Management Consulting | 1 | |
+| 541430 Graphic Design | **0** | |
+| 541513 Computer Facilities Management | **0** | |
+| 561621 Security Systems Services | not queried | budget ran out |
+
+Notice types: 32 Combined Synopsis/Solicitation, 23 Solicitation, 4 Presolicitation.
+Zero awards reached the normalizer — the `ptype` filter works.
 
 ## What surprised us
 
-**Day 1 — the call arithmetic in the spec does not close.**
+**Day 1 (a) — the call arithmetic in the spec does not close.**
 
 The spec assumed 1–3 SAM.gov calls/day. Two documented properties of the API
 say otherwise, and both were found by reading the docs before writing the fetch
@@ -66,6 +83,41 @@ the answer completely.
 
 _(Decide, then record what you chose and why.)_
 
+**Day 1 (b) — the corpus proves the spec's central claim, in detail.**
+
+This is the finding that matters. 541519 "Other Computer Related Services" is
+36 of 59 notices, and reading the titles, almost none of it is software work:
+
+> GORE RF Cables · SMART M4 512GB Solid State Drives · Workstation Computers ·
+> Cell Phone Repeater Removal and Replacement · UPS Preventive Maintenance and
+> Battery Replacement · Weapons Storage System at Ft. MacArthur · Brand Name
+> Cisco Switches · RedHat OS Service Contract · Atlassian Jira licences ·
+> iHawk Annual Software Maintenance · New Patient Queuing Kiosk
+
+Perhaps 6–8 of those 36 are real services work (National Provider Directory
+data aggregation, ServiceNow SecOps implementation, Enterprise Service
+Management deployment, the CNST NanoFab IT contract). The spec predicted
+"62 notices matched your filters — 9 are actually software development work."
+The live feed produced almost exactly that ratio without being asked to.
+
+Even 541511 "Custom Computer Programming" — the purest code available — is
+about half noise: it contains **medical** coding (PSC Q601), web-based
+training, and an IFF transponder.
+
+**PSC turns out to be the discriminating signal NAICS isn't.** `7xxx` codes
+mean a product is being bought; `Dxxx` mean a service. Carrying
+`classificationCode` was speculative on Day 1 and is now load-bearing: give
+the model NAICS *and* PSC *and* the title, and the disagreement between them
+is most of the judgment. It stays model input, never a hard filter — filtering
+on it would steal the work that makes this project worth showing.
+
+**Day 1 (c) — value-band filtering is dead. 0 of 59 notices state a value.**
+
+Not "few" — none. The size control cannot filter on anything, so it either
+comes out of the UI or ships as a documented no-op. This was flagged as an
+open question in the spec; the answer is unambiguous.
+
+
 ---
 
 ## What got cut from the spec, and why
@@ -79,7 +131,7 @@ _(Decide, then record what you chose and why.)_
 
 | Day | Planned | Actual | Notes |
 |---|---|---|---|
-| 1 | 2h | _pending_ | Key not obtained; step zero deferred to Day 2 |
+| 1 | 2h | ~3h | Overran on two environmental false starts (wrong endpoint, quoted key), not on the build |
 | 2 | 2h | | |
 | 3 | 2h | | |
 | 4 | 2h | | |
@@ -95,4 +147,20 @@ bucket. Actual: _pending_.
   figure was load-bearing for the whole architecture and it was wrong by more
   than an order of magnitude. Ten minutes of reading on the day the spec was
   written would have surfaced it.
-- _(add as you go)_
+- **Verify the endpoint with one curl before writing a client against it.** Two
+  of Day 1's three failures were environmental, not logical: the documented URL
+  without `/prod/` 404s, and `cmd.exe`'s `set VAR="..."` embeds the quotes in
+  the value, producing a 40→42-character key that api.data.gov rejects as a
+  bare 404 rather than a 403. Both presented identically. An hour went into
+  re-reading correct documentation because a malformed credential and a dead
+  endpoint are indistinguishable from the outside.
+- **Make credentials announce their own malformation.** `loadApiKey` now
+  reports shape problems before a request is spent. The first version of that
+  check also flagged hyphens, which real keys contain — a false alarm on a
+  working key is worse than no check, because it aims the search at the one
+  thing that was fine.
+- **Harvest before you measure.** Step zero and the fixture capture were two
+  scripts asking the API overlapping questions. With no visible rate-limit
+  headers, the corpus had to be banked first and every other question answered
+  from it offline. Merging them into `harvest.mjs` cost 8 requests and answered
+  more than the original plan's two passes would have.

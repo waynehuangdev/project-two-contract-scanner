@@ -11,12 +11,13 @@
  *
  * Spends one request per code, up to the budget below.
  */
-import { writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { ALL_NAICS, ALLOWED_PTYPES } from '../src/config.ts';
 import { trailingWindow } from '../src/lib/window.ts';
 import { toSamDate } from '../src/sources/samgov.ts';
+import { SAM_SEARCH_URL } from '../src/lib/endpoint.ts';
 
 const MAX_CALLS = Number(process.env.CAPTURE_BUDGET ?? 3);
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -26,6 +27,15 @@ if (!KEY) {
   process.exit(1);
 }
 
+// Reuse whatever step zero resolved rather than re-probing — probing costs a
+// request, and this script should never spend one rediscovering a known fact.
+let SEARCH_URL = SAM_SEARCH_URL;
+try {
+  SEARCH_URL = readFileSync(join(root, '.sam-endpoint'), 'utf8').trim() || SAM_SEARCH_URL;
+} catch {
+  console.log('  (no .sam-endpoint — run step-zero first. Falling back to the default URL.)');
+}
+
 const win = trailingWindow();
 const records = new Map();
 let calls = 0;
@@ -33,7 +43,7 @@ let calls = 0;
 for (const code of ALL_NAICS) {
   if (calls >= MAX_CALLS) break;
 
-  const url = new URL('https://api.sam.gov/opportunities/v2/search');
+  const url = new URL(SEARCH_URL);
   url.searchParams.set('api_key', KEY);
   url.searchParams.set('postedFrom', toSamDate(win.from));
   url.searchParams.set('postedTo', toSamDate(win.to));

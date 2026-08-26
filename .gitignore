@@ -7,3 +7,6 @@ dist/
 # captures out of git — they are large and they churn every day.
 fixtures/notices-sample.json
 fixtures/step-zero-*.json
+
+# Written by step-zero: which base URL actually answered.
+.sam-endpoint

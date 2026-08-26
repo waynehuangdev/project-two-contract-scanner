@@ -111,7 +111,7 @@
     "dueDate": null,
     "valueEstimate": null,
     "setAside": "Total Small Business Set-Aside (FAR 19.5)",
-    "naics": "541430",
+    "naics": "518210",
     "classificationCode": "D306",
     "description": null,
     "descriptionUrl": "https://api.sam.gov/prod/opportunities/v1/noticedesc?noticeid=a1b2c3d4e5f60008",
