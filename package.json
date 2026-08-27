@@ -9,6 +9,7 @@
     "typecheck": "tsc --noEmit",
     "test": "node --experimental-strip-types --experimental-test-isolation=none --test test/normalize.test.mjs test/endpoint.test.mjs test/apikey.test.mjs test/description.test.mjs test/cache.test.mjs",
     "build-fixture": "node --experimental-strip-types scripts/build-fixture.mjs",
+    "labels": "node --experimental-strip-types scripts/make-labels.mjs",
     "probe": "node --experimental-strip-types scripts/probe-endpoint.mjs",
     "harvest": "node --experimental-strip-types scripts/harvest.mjs"
   },

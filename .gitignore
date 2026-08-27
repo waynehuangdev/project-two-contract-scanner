@@ -11,3 +11,4 @@ fixtures/harvest-*.json
 
 # Written by step-zero: which base URL actually answered.
 .sam-endpoint
+LABELS.md

@@ -10,6 +10,8 @@ export interface Env {
   ANTHROPIC_API_KEY?: string;
   NOTICES?: KVNamespace;
   SCORES?: KVNamespace;
+  /** Bound but unused until the optional Day 4 rate limiting. */
+  RATELIMIT?: KVNamespace;
 }
 
 /**

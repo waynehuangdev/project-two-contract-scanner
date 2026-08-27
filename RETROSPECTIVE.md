@@ -204,6 +204,40 @@ open question in the spec; the answer is unambiguous.
 
 **48 tests, no network and no API key required.**
 
+### Deployed and verified — the definition-of-done claim, checked not asserted
+
+Live at `contract-scanner.huauangdel.workers.dev`.
+
+| Call | Result |
+|---|---|
+| Cold `/api/notices` | 107 notices pooled, `asOf` 2026-08-27T04:19:21Z, 8 SAM.gov requests |
+| Warm `/api/notices?area=cybersecurity` | same `asOf`, same pool, instant |
+| `samCallsToday` after both | **8** — unchanged by the warm call |
+
+The second row is the pooled-fetch decision proving itself: a *different service
+area* served from the same harvest at zero additional cost. Five areas, one
+fetch, 8 requests a day regardless of traffic.
+
+### The hard filter barely filters, and that is now measured rather than suspected
+
+With 561621 and the two replacement codes finally queried, the pool is 107 and:
+
+- `software-development` matches **50**
+- `cybersecurity` matches **86** — 80% of the entire pool
+
+The top cybersecurity result is *"Audio/Visual Equipment and Installation"*.
+
+This is the Day 1 finding at full scale. The structured fields are a coarse net,
+not a filter; essentially all of the discrimination has to come from the model.
+Two consequences:
+
+1. **The rejection line is not decoration, it is the product.** "86 matched your
+   filters · 5 worth reading" is the honest description of what this tool does.
+   Without scoring, the page would be a list of 86 mostly-irrelevant notices.
+2. **Day 3 carries more weight than the plan assumed.** The scoring prompt is
+   not improving a decent filter; it is the only thing standing between a
+   visitor and 86 rows of audio-visual equipment.
+
 ## Still open after Day 2
 
 **The contract-size control.** Free descriptions change the picture: the scorer

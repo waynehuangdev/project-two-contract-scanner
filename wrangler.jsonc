@@ -5,14 +5,22 @@
   "compatibility_date": "2025-01-15",
   "observability": { "enabled": true },
 
-  // Day 2 wires these up. Create with:
-  //   wrangler kv namespace create NOTICES
-  //   wrangler kv namespace create SCORES
-  // then paste the ids below and uncomment.
-  // "kv_namespaces": [
-  //   { "binding": "NOTICES", "id": "" },
-  //   { "binding": "SCORES", "id": "" }
-  // ],
+  // Explicit rather than inherited, so a deploy prints no warnings and the
+  // published surface is a deliberate choice. One canonical URL: preview URLs
+  // would put the same tool at per-version addresses nobody asked for.
+  "workers_dev": true,
+  "preview_urls": false,
+
+  "kv_namespaces": [
+    // The pooled 7-day notice window, plus the daily SAM.gov call counter.
+    { "binding": "NOTICES", "id": "909f28cd74554e56965b73500213e926" },
+    // Model scores, keyed (notice_id, profile_hash). Populated from Day 3.
+    { "binding": "SCORES", "id": "4003c1ba7ed946589dd7167bdb8e7872" },
+    // Per-IP scan counts. Bound now so the optional rate limiting is a
+    // drop-in on Day 4 rather than a namespace-creation detour; nothing
+    // reads or writes it yet.
+    { "binding": "RATELIMIT", "id": "bab62d19cd594460b7557ed461e508da" }
+  ],
 
   "vars": {
     // Trailing window the scanner fetches. 7 per the spec; not a user control.
