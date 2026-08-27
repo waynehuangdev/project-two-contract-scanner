@@ -247,6 +247,65 @@ notice is worse than no filter. Recommendation: cut it as a *filter* (profile
 space 40 → 10, score cache warms 4× faster) and have the scorer surface a value
 when the text states one, for display only. Not yet implemented.
 
+## Day 3 (a) — the hand-labelled set immediately caught two of my errors
+
+Fifteen notices, labelled cold before any prompt existed. That ordering paid for
+itself in the first five minutes.
+
+### Correction: I overstated the PSC claim
+
+Day 1 and Day 2 both recorded "PSC is the discriminating signal NAICS isn't",
+with `7xxx` = a product being bought and `Dxxx` = a service. The labels break it:
+
+| Notice | PSC | My heuristic said | Reality |
+|---|---|---|---|
+| Inventory Management Software | `7A20` | product | real software build, 15-week deliverable |
+| IFF Transponder Software | `7A21` | product | software |
+| Dorm Wi-Fi Heat Mapping Survey | `DA01` | IT service | an RF site survey — no software at all |
+
+The `7A` series is *Business Application Software*; it is `70`/`72` that means
+hardware. The direction was right and the granularity was wrong, and it was
+asserted with far more confidence than one week of titles could support.
+
+**PSC stays model input and does not become a rule in the prompt.** The general
+lesson is the specific one: a pattern spotted across sixty titles in an
+afternoon is a hypothesis, and writing it down twice in a retrospective does not
+promote it to a finding.
+
+### Correction: 561621 was never cybersecurity
+
+`561621 Security Systems Services` is *physical* security — alarm and CCTV
+installation. It went into the cybersecurity area on the strength of the word
+"security" and nothing else.
+
+The labels made it unmissable: cybersecurity matched **86 of 107** notices under
+the hard filter and scored **0 of 15** as worth reading. Federal infosec work is
+filed under 541512/541519 with PSC DK/DH codes.
+
+Removed. The union drops to **7 codes**, so a daily refresh now costs 7 requests.
+
+### The labels are more permissive than the product story
+
+Twelve of fifteen notices passed on at least one area:
+
+| area | Y | of 15 |
+|---|---|---|
+| it-support | 8 | 53% |
+| software-development | 5 | 33% |
+| web-digital | 2 | 13% |
+| data-analytics | 2 | 13% |
+| cybersecurity | 0 | 0% |
+
+`it-support` was doing catch-all duty — A/V equipment installation, an RF site
+survey and Lockheed-proprietary sustainment all marked Y under "supporting an
+existing system". Defensible, but at 53% the rejection line reads
+"86 matched · 45 worth reading", which is a filter rather than judgment.
+
+**Decision: the bar is "would this agency actually bid?", not "could someone do
+this work?"** A 15-person shop with no SAM registration, no clearance and no
+incumbent relationship realistically bids on very few federal notices. That is
+the honest standard and the one that produces a rejection line worth showing.
+
 ## Where Day 3 starts
 
 1. **The free test first:** does `sam.gov/api/prod/opps/v3/...` serve description

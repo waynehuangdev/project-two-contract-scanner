@@ -3,12 +3,11 @@ import type { Notice } from '../types.ts';
 /**
  * The notice cache.
  *
- * The spec described five buckets, one per service area. The harvest showed
- * why that would be wrong here: `ncode` takes one code per request, the five
- * areas share codes (541519 alone appears in three of them), and fetching per
- * area would pay for 541511, 541512 and 541519 twice over. So one pooled fetch
- * of the eight-code union is cached, and the five buckets are derived from it
- * in code — free, exact, and a third of the requests.
+ * The spec described one bucket per service area. The harvest showed why that
+ * would be wrong: `ncode` takes one code per request and the areas share codes,
+ * so fetching per area pays twice for every overlap. One pooled fetch of the
+ * six-code union is cached instead, and the areas are derived from it in code —
+ * free, exact, and far fewer requests.
  *
  * Everything here is shaped by one fact: the daily request budget is unknown.
  * api.data.gov returns no `X-RateLimit` headers on this endpoint, so we cannot
@@ -151,7 +150,7 @@ export async function resolvePool(
   if (inFlight) {
     if (existing) {
       // Stale data now beats fresh data later. A visitor should never wait on
-      // an eight-request harvest to see notices that are still this week's.
+      // a six-request harvest to see notices that are still this week's.
       return { notices: existing.notices, fetchedAt: existing.fetchedAt, stale: true, error: null };
     }
     return await joinInFlight(inFlight);

@@ -12,3 +12,6 @@ fixtures/harvest-*.json
 # Written by step-zero: which base URL actually answered.
 .sam-endpoint
 LABELS.md
+
+# Harness cache: hydrated descriptions. Free to refetch, no reason to track.
+.cache/

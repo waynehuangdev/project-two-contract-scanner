@@ -1,0 +1,201 @@
+{
+  "_about": "Hand-labelled by Wayne on 2026-08-27, cold, before any prompt existed. This is the fixed point the scoring prompt is measured against. Tracked in git because unlike the notice corpus it is judgement, not scraped data \u2014 and it is the only evidence that the scorer was tuned to something rather than to itself.",
+  "bar": "Would a 5-30 person digital agency \u2014 design, web, apps, digital product \u2014 actually bid on this? Not 'could someone technical do the work'. The visitor has no SAM registration, no clearance, no incumbent relationship, and 5-30 billable designers and engineers.",
+  "bands": {
+    "clear": "80-100. Any competent shop in this service area could bid. Scope is legible and self-contained.",
+    "conditional": "50-79. Plausible ONLY with a specific domain niche, or against a specific incumbent risk. The justification must name the condition \u2014 that is what makes the band useful rather than a hedge.",
+    "no": "0-49. Not this business. Wrong buyer, wrong capability, or effectively pre-awarded."
+  },
+  "labels": [
+    {
+      "noticeId": "b07cd630d15743e5a1a9c720fc425227",
+      "title": "Software maintenance and support services for existing MyPath tools \u2014 VA Puget Sound",
+      "expected": {
+        "software-development": "no",
+        "web-digital": "no",
+        "data-analytics": "no"
+      },
+      "note": "REVISED 2026-08-27 from 'conditional' to 'no'. The original label reasoned that a health-tech-niche shop could do the work. The scorer, reading the full description, made the stronger point: capability is not the binding constraint, displacing the incumbent maintainer is. No green-field scope is described, at a named incumbent site, on a trademarked existing system. Recorded rather than silently edited \u2014 the labelled set is a fixed point, not an infallible one, and it was made in fifteen minutes without the descriptions in hand.",
+      "unfamiliarTerms": [
+        "MyPath"
+      ],
+      "revisedFrom": "conditional",
+      "revisedBecause": "scorer read the description more carefully than the labeller did"
+    },
+    {
+      "noticeId": "cbe93c42b8574b39abe5e9d22cf99cbf",
+      "title": "NOAA Scalable Framework for Coastal Ocean Modeling Emulation",
+      "expected": {
+        "software-development": "no",
+        "web-digital": "no",
+        "data-analytics": "no"
+      },
+      "note": "Right answer, weaker reason than the scorer found. The label said 'research lab's work'. The notice is a SOLE SOURCE to Fathom Science, Inc. under FAR 6.103-1 \u2014 'no authorized partners or resellers' \u2014 and the presolicitation exists to give other firms 15 days to OBJECT, not to bid. Legally unwinnable, which no title, NAICS or PSC code carries. The best evidence in the corpus that something read the notice.",
+      "confidence": "high"
+    },
+    {
+      "noticeId": "479364d6d39f4a9596a70ed6965d8420",
+      "title": "Centrak RTLS MSA Extension",
+      "expected": {
+        "software-development": "no",
+        "web-digital": "no",
+        "data-analytics": "no"
+      },
+      "note": "Labelled low-confidence \u2014 'I don't have enough knowledge in this area'. Centrak RTLS is hospital real-time location hardware; an MSA extension on a named vendor product is a renewal. This notice is the case FOR the glossary step: without knowing what Centrak RTLS is, neither a human nor a model can score it honestly.",
+      "unfamiliarTerms": [
+        "Centrak RTLS",
+        "MSA"
+      ],
+      "confidence": "low"
+    },
+    {
+      "noticeId": "be1174bd6f1e43d1b37b6b788b689b43",
+      "title": "Medical Coding (VA)",
+      "expected": {
+        "software-development": "no",
+        "web-digital": "no",
+        "data-analytics": "no"
+      },
+      "note": "MEDICAL coding \u2014 clinical billing classification, performed by certified coders. Not software. Tagged NAICS 541511 'Custom Computer Programming', which makes it the single best example in the corpus of a misfiled notice that only reading can catch.",
+      "confidence": "low"
+    },
+    {
+      "noticeId": "15ed46af245349eba109ba3af578f04c",
+      "title": "EOS - Web-Based Training",
+      "expected": {
+        "software-development": "no",
+        "web-digital": "clear",
+        "data-analytics": "no"
+      },
+      "note": "Courseware development and maintenance for Air Force training. Genuinely digital-agency work \u2014 e-learning build is a standard agency service line."
+    },
+    {
+      "noticeId": "d76d575b2ec84c29a06cd06b52f0bee5",
+      "title": "Inventory Management Software (DEVCOM-SC)",
+      "expected": {
+        "software-development": "clear",
+        "web-digital": "no",
+        "data-analytics": "no"
+      },
+      "note": "The cleanest fit in the set: a real build, 15-week deliverable, legible self-contained scope. Note PSC 7A20, which a naive '7xxx means hardware' rule would have thrown away.",
+      "confidence": "high"
+    },
+    {
+      "noticeId": "0b6261b92ed44f85a23280ee7503c917",
+      "title": "Enhancements to National Navigation Operation & Management Performance Evaluation & Assessment System (NNOMPEAS)",
+      "expected": {
+        "software-development": "conditional",
+        "web-digital": "no",
+        "data-analytics": "no"
+      },
+      "note": "PROVISIONAL \u2014 originally labelled under the retired it-support area, re-read as conditional. Enhancement development on a named federal system: real development work, but domain-specific and incumbent-favouring. Needs Wayne's confirmation.",
+      "unfamiliarTerms": [
+        "NNOMPEAS"
+      ],
+      "provisional": true
+    },
+    {
+      "noticeId": "2d7fc7613a9e43dc8f5361f1d572ef99",
+      "title": "NISC Enterprise Support Tasking (NEST)",
+      "expected": {
+        "software-development": "no",
+        "web-digital": "no",
+        "data-analytics": "no"
+      },
+      "note": "FAA enterprise support programme. Prime-scale; a 30-person shop is a subcontractor here at best, never the bidder.",
+      "unfamiliarTerms": [
+        "NISC"
+      ]
+    },
+    {
+      "noticeId": "33901f320a5e426f9dc596311be20710",
+      "title": "C5 - APX-119 IFF Transponder Software",
+      "expected": {
+        "software-development": "no",
+        "web-digital": "no",
+        "data-analytics": "no"
+      },
+      "note": "Defence avionics \u2014 Traffic Collision Avoidance System integration. Needs clearance and a facility. The word 'Software' in the title is a trap, and PSC 7A21 does not save it.",
+      "unfamiliarTerms": [
+        "IFF",
+        "TCAS",
+        "APX-119"
+      ]
+    },
+    {
+      "noticeId": "efb709e950694c93a2ae620a1c129f73",
+      "title": "Congressional Cable TV System Assessment",
+      "expected": {
+        "software-development": "no",
+        "web-digital": "no",
+        "data-analytics": "no"
+      },
+      "note": "A pricing request for a broadcast system assessment. Nothing digital-agency about it."
+    },
+    {
+      "noticeId": "ab5de2004b3a4549819300908e5f3ee1",
+      "title": "RFS: Autonomous Coding (AC) and Automated Appeals & Denials Management (ADM)",
+      "expected": {
+        "software-development": "clear",
+        "web-digital": "conditional",
+        "data-analytics": "no"
+      },
+      "note": "AI/ML solutions for Military Health System financial recovery. A 'Request for Solutions' explicitly invites non-incumbents, which is what lifts it above the usual DoD-scale caution.",
+      "unfamiliarTerms": [
+        "DHMSM",
+        "MHS"
+      ],
+      "confidence": "high"
+    },
+    {
+      "noticeId": "06e68b2ad8484be6aec4ac65f8233d93",
+      "title": "Follow-on Ports and Waterways Safety System (PAWSS) Sustainment Support IDIQ",
+      "expected": {
+        "software-development": "no",
+        "web-digital": "no",
+        "data-analytics": "no"
+      },
+      "note": "The description says it: limited to support of Lockheed Martin's proprietary Maritime Traffic Management software. Effectively pre-awarded. One sentence away from looking like a real software opportunity \u2014 the case for reading the whole description rather than the title.",
+      "unfamiliarTerms": [
+        "PAWSS",
+        "MTM",
+        "IDIQ"
+      ]
+    },
+    {
+      "noticeId": "b502ae9b69d5432db1680fa9a65135a0",
+      "title": "State Electronic Marriage Data Exchange (SSA)",
+      "expected": {
+        "software-development": "conditional",
+        "web-digital": "no",
+        "data-analytics": "no"
+      },
+      "note": "PROVISIONAL \u2014 originally labelled under the retired it-support area. A small, self-contained state-to-federal data integration; plausibly the most biddable thing in the set after the Inventory notice. Needs Wayne's confirmation, and may deserve 'clear'.",
+      "provisional": true
+    },
+    {
+      "noticeId": "60a6a5a414bb4832a96166cbf115d3b6",
+      "title": "Dorm Wi-Fi Heat Mapping Survey",
+      "expected": {
+        "software-development": "no",
+        "web-digital": "no",
+        "data-analytics": "no"
+      },
+      "note": "An RF site survey across six dormitory buildings. PSC DA01 files it as an IT service, which is why a PSC-based rule would have scored it high \u2014 it is the counter-example to the heuristic.",
+      "unfamiliarTerms": [
+        "WLAN",
+        "RF site survey"
+      ]
+    },
+    {
+      "noticeId": "626f75387f504b0a880a3dfc28470132",
+      "title": "Audio/Visual Equipment and Installation",
+      "expected": {
+        "software-development": "no",
+        "web-digital": "no",
+        "data-analytics": "no"
+      },
+      "note": "Equipment supply and physical installation. Was the top-ranked cybersecurity match under the old NAICS mapping, which is what exposed 561621 as physical security rather than infosec."
+    }
+  ]
+}

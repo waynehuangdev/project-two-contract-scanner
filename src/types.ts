@@ -55,12 +55,18 @@ export interface Notice {
 
 export type SourceId = 'sam.gov';
 
-export type ServiceArea =
-  | 'software-development'
-  | 'web-digital'
-  | 'data-analytics'
-  | 'it-support'
-  | 'cybersecurity';
+/**
+ * Three, not the spec's five.
+ *
+ * The audience is a 5-30 person digital agency — design, web, apps, digital
+ * product. `it-support` and `cybersecurity` were cut on Day 3 because they
+ * describe a different business: an MSP bids the Wi-Fi survey and the A/V
+ * install, an infosec specialist bids the SOC work, and neither is the person
+ * this is built to reach. Offering areas the visitor's shop does not sell
+ * would surface notices they would never chase, which is the exact failure the
+ * tool claims to fix.
+ */
+export type ServiceArea = 'software-development' | 'web-digital' | 'data-analytics';
 
 export type SizeBand = 'under-250k' | '250k-1m' | 'over-1m' | 'any';
 

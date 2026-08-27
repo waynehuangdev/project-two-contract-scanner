@@ -91,7 +91,7 @@ test('hard filters keep the misfiled notices — that is the scorer\'s job, not 
 });
 
 test('small-business filter excludes full-and-open notices', () => {
-  const matched = applyHardFilters(notices, { area: 'cybersecurity', size: 'any', setAside: 'small-business' });
+  const matched = applyHardFilters(notices, { area: 'data-analytics', size: 'any', setAside: 'small-business' });
   assert.ok(!matched.some((n) => n.title.includes('Security Operations Center')));
 });
 

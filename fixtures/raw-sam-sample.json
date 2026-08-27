@@ -167,11 +167,11 @@
     "fullParentPathName": "HOMELAND SECURITY, DEPARTMENT OF.CISA",
     "postedDate": "2026-08-21 10:00:00-04",
     "type": "Solicitation",
-    "naicsCode": "561621",
+    "naicsCode": "541512",
     "description": "https://api.sam.gov/prod/opportunities/v1/noticedesc?noticeid=unknown"
   },
   {
-    "_case": "NO SET-ASIDE — full and open. Must not match a small-business-only profile.",
+    "_case": "NO SET-ASIDE — full and open. Must not match a small-business-only profile. Real cyber work: 541512 with a DK-family PSC, not the physical-security 561621 that was retired 2026-08-27.",
     "noticeId": "a1b2c3d4e5f60012",
     "title": "Security Operations Center Tooling and Continuous Monitoring",
     "solicitationNumber": "HSHQDC26R00000012",
@@ -180,7 +180,7 @@
     "type": "Solicitation",
     "baseType": "Solicitation",
     "responseDeadLine": "2026-09-25T17:00:00-04:00",
-    "naicsCode": "561621",
+    "naicsCode": "541512",
     "classificationCode": "D310",
     "description": "https://api.sam.gov/prod/opportunities/v1/noticedesc?noticeid=a1b2c3d4e5f60012",
     "uiLink": "https://sam.gov/opp/a1b2c3d4e5f60012/view"
