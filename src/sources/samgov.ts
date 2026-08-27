@@ -1,7 +1,7 @@
 import { ALLOWED_PTYPES } from '../config.ts';
 import type { DateWindow, Notice } from '../types.ts';
 import { SourceError, type FetchResult, type SourceAdapter } from './adapter.ts';
-import { SAM_SEARCH_URL } from '../lib/endpoint.ts';
+import { SAM_SEARCH_URL, SAM_UI_OPPORTUNITY_URL } from '../lib/endpoint.ts';
 
 const PAGE_SIZE = 1000; // documented maximum
 const MAX_PAGES_PER_CODE = 2; // a 7-day window per NAICS code will not exceed this
@@ -123,35 +123,92 @@ export class SamGovAdapter implements SourceAdapter {
   }
 
   /**
-   * Fetch the description text for one notice. ONE REQUEST AGAINST THE DAILY QUOTA.
+   * Fetch the description text for one notice.
    *
-   * Never call this in a loop over a whole bucket without metering it. The
-   * caller owns the budget; this method just spends what it is told to.
+   * Tries the UI endpoint first — unmetered, different host, no credential —
+   * and falls back to the documented metered one only if that fails. The
+   * ordering is the whole point: on the documented path alone, reading sixty
+   * notices costs sixty of roughly ten daily requests, and the project does
+   * not work.
+   *
+   * `onMeteredCall` fires only when the fallback is used, so the caller's
+   * budget accounting stays honest about what was actually spent.
    */
-  async hydrateDescription(notice: Notice, onCall?: () => void): Promise<string | null> {
-    if (!notice.descriptionUrl) return null;
+  async hydrateDescription(
+    notice: Notice,
+    onMeteredCall?: () => void,
+  ): Promise<{ text: string | null; via: 'ui' | 'api' | null }> {
+    // --- unmetered path -----------------------------------------------------
+    try {
+      const url = new URL(`${SAM_UI_OPPORTUNITY_URL}/${encodeURIComponent(notice.noticeId)}`);
+      url.searchParams.set('api_key', 'null'); // what the UI itself sends
+      const res = await fetch(url, { headers: { Accept: 'application/json' } });
+      if (res.ok) {
+        const text = parseUiDescription(await res.json());
+        if (text) return { text, via: 'ui' };
+      }
+    } catch {
+      // Network trouble or a shape change. Fall through rather than fail the
+      // whole scan — a notice without a description is thin, not fatal.
+    }
+
+    // --- metered fallback ---------------------------------------------------
+    if (!notice.descriptionUrl) return { text: null, via: null };
 
     const url = new URL(notice.descriptionUrl);
     url.searchParams.set('api_key', this.apiKey);
 
-    onCall?.();
+    onMeteredCall?.();
     const res = await fetch(url, { headers: { Accept: 'application/json' } });
-    if (!res.ok) return null; // a missing description is a thin notice, not a failed scan
+    if (!res.ok) return { text: null, via: null };
 
-    const text = await res.text();
-    // The endpoint has been observed returning both a bare string and a JSON
-    // envelope. Accept either; return null rather than guessing on anything else.
-    try {
-      const parsed = JSON.parse(text) as unknown;
-      if (typeof parsed === 'string') return stripHtml(parsed);
-      if (parsed && typeof parsed === 'object' && 'description' in parsed) {
-        const d = (parsed as { description?: unknown }).description;
-        return typeof d === 'string' ? stripHtml(d) : null;
-      }
-      return null;
-    } catch {
-      return text.trim() ? stripHtml(text) : null;
+    return { text: parseApiDescription(await res.text()), via: 'api' };
+  }
+}
+
+/**
+ * Pull description text out of the UI endpoint's payload.
+ *
+ * Shape: `{ data2: {...}, description: [{ body: "<p>...</p>" }] }`. Exported
+ * and pure so the parsing is testable without touching the network — the
+ * endpoint is undocumented, so its response shape is exactly the thing most
+ * likely to change under us, and a test is how we find out quickly.
+ */
+export function parseUiDescription(json: unknown): string | null {
+  if (!json || typeof json !== 'object') return null;
+  const desc = (json as { description?: unknown }).description;
+  if (!Array.isArray(desc) || desc.length === 0) return null;
+
+  // Multiple entries appear on amended notices. Join them: an amendment's
+  // added paragraph is often the part that matters ("responses to questions
+  // uploaded", "deadline extended"), and dropping it would lose real signal.
+  const parts = desc
+    .map((d) => (d && typeof d === 'object' ? (d as { body?: unknown }).body : null))
+    .filter((b): b is string => typeof b === 'string' && b.trim().length > 0)
+    .map(stripHtml);
+
+  const joined = parts.join('\n\n').trim();
+  return joined.length ? joined : null;
+}
+
+/**
+ * Pull description text out of the documented metered endpoint.
+ *
+ * It has been observed returning both a bare JSON string and an envelope.
+ * Accept either; return null rather than guessing at anything else.
+ */
+export function parseApiDescription(body: string): string | null {
+  if (!body.trim()) return null;
+  try {
+    const parsed = JSON.parse(body) as unknown;
+    if (typeof parsed === 'string') return stripHtml(parsed) || null;
+    if (parsed && typeof parsed === 'object' && 'description' in parsed) {
+      const d = (parsed as { description?: unknown }).description;
+      return typeof d === 'string' ? stripHtml(d) || null : null;
     }
+    return null;
+  } catch {
+    return stripHtml(body) || null;
   }
 }
 

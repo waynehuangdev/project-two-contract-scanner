@@ -1,37 +1,38 @@
-import { DEFAULT_PROFILE, SERVICE_AREAS, SIZE_BANDS } from './config.ts';
+import { ALL_NAICS, DEFAULT_PROFILE, SERVICE_AREAS, SIZE_BANDS, WINDOW_DAYS } from './config.ts';
+import { CallCounter, NoticeCache, resolvePool, type CachedPool, type PoolResult } from './lib/cache.ts';
 import { applyHardFilters } from './lib/filter.ts';
 import { trailingWindow } from './lib/window.ts';
+import { SamGovAdapter } from './sources/samgov.ts';
 import type { Notice, Profile, ServiceArea, SetAsidePreference, SizeBand } from './types.ts';
 
 export interface Env {
   SAM_API_KEY?: string;
   ANTHROPIC_API_KEY?: string;
-  // Day 2 bindings.
   NOTICES?: KVNamespace;
   SCORES?: KVNamespace;
 }
 
 /**
- * Day 1 Worker.
+ * Day 2 Worker: cached fetch, no scoring yet.
  *
- * Deployed early on purpose: the point tonight is that deployment is a solved,
- * boring problem long before the last night, not that the endpoint does
- * anything interesting yet. It serves fixture data through the real filter
- * path, so the hard-constraint layer is exercised end to end without spending
- * a single SAM.gov request.
- *
- * Day 2 replaces `loadNotices` with the KV-cached fetch. Nothing else moves.
+ * The response shape already carries `worthReading` and `stale` even though
+ * nothing sets `worthReading` until Day 3. Getting the shape right now means
+ * the frontend is written once against its final contract rather than
+ * retrofitted around a field that appeared late.
  */
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
 
     if (url.pathname === '/api/health') {
+      const calls = env.NOTICES ? await new CallCounter(env.NOTICES).get() : null;
       return json({
         ok: true,
-        stage: 'day-1',
+        stage: 'day-2',
         window: trailingWindow(),
         samKeyConfigured: Boolean(env.SAM_API_KEY),
+        kvBound: Boolean(env.NOTICES),
+        samCallsToday: calls,
       });
     }
 
@@ -40,23 +41,34 @@ export default {
         areas: Object.entries(SERVICE_AREAS).map(([id, a]) => ({ id, label: a.label, naics: a.naics })),
         sizes: Object.entries(SIZE_BANDS).map(([id, b]) => ({ id, label: b.label })),
         defaults: DEFAULT_PROFILE,
+        windowDays: WINDOW_DAYS,
       });
     }
 
     if (url.pathname === '/api/notices') {
       const profile = parseProfile(url.searchParams);
-      const all = await loadNotices();
-      const matched = applyHardFilters(all, profile);
+      const pool = await loadPool(env);
+
+      // A cold cache that could not be filled is a failure, not a quiet week.
+      // Say so with a 503 so the frontend can render its failure state and
+      // monitoring can tell the difference.
+      if (pool.error && pool.notices.length === 0) {
+        return json({ profile, error: pool.error, matched: 0, worthReading: null, results: [] }, 503);
+      }
+
+      const matched = applyHardFilters(pool.notices, profile);
 
       return json({
         profile,
         window: trailingWindow(),
-        // `matched` is half the rejection line. The other half arrives on Day 3
-        // when scoring exists; until then the shape is already correct so the
-        // frontend never has to be rewritten around it.
+        // The rejection line's two numbers. `matched` is the boring half and is
+        // real today; `worthReading` stays null until scoring exists rather
+        // than being faked with a filter count.
         matched: matched.length,
         worthReading: null,
-        source: 'fixture',
+        asOf: pool.fetchedAt,
+        stale: pool.stale,
+        poolSize: pool.notices.length,
         results: matched,
       });
     }
@@ -66,14 +78,48 @@ export default {
 } satisfies ExportedHandler<Env>;
 
 /**
- * Day 1: the hand-written fixture, inlined at build time.
- * Day 2: KV bucket with lazy TTL refresh, falling back to stale-with-a-flag.
+ * Resolve the notice pool, preferring KV and falling back to the bundled
+ * fixture when KV is not bound.
+ *
+ * The fixture path keeps `wrangler dev` useful with no KV namespace and no API
+ * key, which is what makes the frontend work on Day 4 possible without
+ * spending requests from a budget that reports nothing.
  */
-async function loadNotices(): Promise<Notice[]> {
-  const { default: fixture } = await import('../fixtures/hand-written.json', {
-    with: { type: 'json' },
+async function loadPool(env: Env): Promise<PoolResult> {
+  if (!env.NOTICES || !env.SAM_API_KEY) {
+    const { default: fixture } = await import('../fixtures/hand-written.json', {
+      with: { type: 'json' },
+    });
+    return {
+      notices: fixture as Notice[],
+      fetchedAt: null,
+      stale: false,
+      error: null,
+    };
+  }
+
+  const cache = new NoticeCache(env.NOTICES);
+  const counter = new CallCounter(env.NOTICES);
+
+  return resolvePool(cache, async (): Promise<CachedPool> => {
+    const window = trailingWindow();
+    const adapter = new SamGovAdapter(env.SAM_API_KEY!);
+
+    let spent = 0;
+    const { notices } = await adapter.fetchWindow({
+      window,
+      // The union of every area's codes, fetched once. The five buckets are
+      // derived from this pool in code — see lib/cache.ts for why.
+      naicsCodes: ALL_NAICS,
+      onCall: () => spent++,
+    });
+
+    // Record usage even though the fetch succeeded — the counter is the only
+    // visibility we have into a budget the API refuses to report.
+    await counter.add(spent);
+
+    return { fetchedAt: new Date().toISOString(), window, notices };
   });
-  return fixture as Notice[];
 }
 
 /**
@@ -98,6 +144,10 @@ function parseProfile(params: URLSearchParams): Profile {
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body, null, 2), {
     status,
-    headers: { 'content-type': 'application/json; charset=utf-8' },
+    headers: {
+      'content-type': 'application/json; charset=utf-8',
+      // The frontend is served from Pages, a different origin from the Worker.
+      'access-control-allow-origin': '*',
+    },
   });
 }

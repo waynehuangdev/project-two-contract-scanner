@@ -81,7 +81,39 @@ constraint entirely if the project outlives the sprint. Confirm on Day 2 with
 step-zero's actual numbers — particularly whether E works, which would change
 the answer completely.
 
-_(Decide, then record what you chose and why.)_
+**DECIDED, Day 2: option E. It works.**
+
+```
+GET https://sam.gov/api/prod/opps/v2/opportunities/{noticeId}?api_key=null
+```
+
+Returns the full record including `description[0].body` — the actual text —
+with no credential, on a different host from `api.sam.gov`, at no quota cost.
+The literal string `null` is what SAM.gov's own web UI sends.
+
+Found by giving up on guessing paths, loading an opportunity page in a browser
+and reading its network calls. Two guessed URLs 404'd first; the network log
+answered in one look. **Read what the client actually does before theorising
+about what the server accepts** — that would have saved both guesses.
+
+Consequences:
+
+- The model reads full descriptions, as the spec intended. Options B and C are
+  unnecessary; the demo claim stays "something read these notices" rather than
+  narrowing to "something reconciled the metadata".
+- The metered `api.sam.gov` description endpoint stays wired as a fallback, so
+  if GSA changes this the tool degrades instead of dying.
+- Descriptions are cached permanently by `noticeId` — a notice version's text
+  never changes — and fetched sequentially. Public data on a public site, but
+  "allowed" and "polite" are different standards.
+- The daily SAM.gov budget now only has to cover **8 search requests**, one per
+  NAICS code. That is the entire cost of a refresh.
+
+**The honest tradeoff, for the README:** this endpoint is undocumented. It can
+change without a changelog. `test/description.test.mjs` pins the response shape
+against a real captured payload so a change fails loudly in tests rather than
+quietly producing empty descriptions — which would look like a thin week rather
+than a broken parser.
 
 **Day 1 (b) — the corpus proves the spec's central claim, in detail.**
 
@@ -125,16 +157,77 @@ open question in the spec; the answer is unambiguous.
 - **IP rate limiting** — moved to optional when the schedule went from 3 days ×
   3h to 4 days × 2h. The hard spend limit and the score cache carry most of the
   abuse protection; this is the belt to those braces.
-- _(add as you go)_
+- **NAICS 541430 (Graphic Design) and 541513 (Computer Facilities Management)** —
+  0 records each in the harvest. Replaced with 518210 and 811212 rather than
+  simply dropped, because `ncode` takes one code per request and the union size
+  is now a hard budget line: 8 codes = 8 requests per refresh.
+- **The contract-size control** — pending. 0 of 59 notices state a value and the
+  documented schema has no solicitation pricing field at all (`award.amount`
+  populates only on Award Notices, which are excluded at fetch; the 7 award
+  objects in the corpus are empty shells, `{"awardee":{}}`). The field either
+  comes out — dropping the profile space from 40 combinations to 10, warming the
+  score cache 4× faster — or becomes real by having the scorer extract figures
+  from description text, which depends on the description question above.
+- **`scripts/step-zero.mjs` and `scripts/capture-fixture.mjs`** — superseded by
+  `harvest.mjs`, still in the tree. Delete before the repo goes public; three
+  scripts where one is current reads as indecision.
 
 ## Elapsed time vs. estimate
 
 | Day | Planned | Actual | Notes |
 |---|---|---|---|
-| 1 | 2h | ~3h | Overran on two environmental false starts (wrong endpoint, quoted key), not on the build |
+| 1 | 2h | ~3h | Overran on two environmental false starts (wrong endpoint, quoted key), not on the build. Repo pushed to GitHub, private until Day 4. |
 | 2 | 2h | | |
 | 3 | 2h | | |
 | 4 | 2h | | |
+
+## Day 2 — what got built
+
+- **Description hydration** via the unmetered UI endpoint, metered fallback intact,
+  both parsers pure and tested against a real captured payload.
+- **Notice cache** (`lib/cache.ts`): one pooled fetch of the 8-code union cached in
+  KV, five service areas derived from it in code. 24h TTL, lazy refresh.
+- **Stale-serve.** A failed refresh returns yesterday's notices flagged `stale`,
+  never an empty list. With an unknown daily budget this is not an edge case —
+  it is how a normal day ends. Rendering it as zero results would tell a visitor
+  federal IT procurement paused, which is never true.
+- **Two-layer single-flight.** The KV lock is approximate (eventually consistent
+  reads let two isolates both see it unheld); an isolate-local in-flight promise
+  is exact within one isolate. The first attempt had an `await` between checking
+  and claiming the slot — a window wide enough for an entire burst to slip
+  through. Caught by a test that asserted six concurrent visitors trigger one
+  harvest, not six.
+- **Call counter** in KV, per UTC day. Read-modify-write, so it can undercount
+  under concurrency — acceptable, and it errs toward never inventing usage that
+  did not happen. A Durable Object would be real infrastructure for a diagnostic.
+- Deleted `step-zero.mjs` and `capture-fixture.mjs`, superseded by `harvest.mjs`.
+
+**48 tests, no network and no API key required.**
+
+## Still open after Day 2
+
+**The contract-size control.** Free descriptions change the picture: the scorer
+could extract a figure when the description states one. But the structured field
+is empty on 100% of notices, and a filter that silently drops every unpriced
+notice is worse than no filter. Recommendation: cut it as a *filter* (profile
+space 40 → 10, score cache warms 4× faster) and have the scorer surface a value
+when the text states one, for display only. Not yet implemented.
+
+## Where Day 3 starts
+
+1. **The free test first:** does `sam.gov/api/prod/opps/v3/...` serve description
+   text without an API key? Everything below branches on the answer, and it costs
+   no quota.
+2. Decide the description strategy and the size control; record both here.
+3. KV notice cache, five buckets derived from one pooled harvest, lazy TTL
+   refresh, stale-serve on a failed refetch.
+4. Call counter in KV — the daily budget is still unknown (no `X-RateLimit`
+   headers, no 429 after 10 requests), so metering our own usage is the only
+   visibility available.
+5. `npm install` from a Windows terminal, then `wrangler deploy` — the Day 1
+   deploy never happened because the Cowork VM and the cloud container both
+   have `registry.npmjs.org` blocked.
+6. Hand-label 15 notices from the corpus at the end of the session.
 
 ## Actual cost vs. estimate
 

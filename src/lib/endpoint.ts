@@ -22,6 +22,34 @@ export const SAM_SEARCH_URL: string = SAM_SEARCH_CANDIDATES[0];
 /** The v1 description endpoint, for when a record carries no `description` link. */
 export const SAM_DESC_URL = 'https://api.sam.gov/prod/opportunities/v1/noticedesc';
 
+/**
+ * The endpoint SAM.gov's own web UI calls to render an opportunity page.
+ *
+ * `https://sam.gov/api/prod/opps/v2/opportunities/{noticeId}?api_key=null`
+ *
+ * Different host from `api.sam.gov`, no credential — the literal string
+ * "null" is what the UI sends — and it returns the full record including
+ * `description[0].body`, the text the documented API charges a request for.
+ * Found by loading an opportunity page and reading its network calls.
+ *
+ * This is what makes the project viable. The documented path costs one
+ * metered request per notice against a budget of about ten per day; reading
+ * sixty notices was arithmetically impossible. This serves the same public
+ * procurement text any visitor's browser receives, at no quota cost.
+ *
+ * **It is undocumented, and that is a real tradeoff, not a footnote.** GSA can
+ * change or remove it without notice or a changelog. Two things follow, and
+ * both are load-bearing rather than defensive habits:
+ *
+ *   1. `SAM_DESC_URL` above stays wired as a fallback. When this breaks, the
+ *      tool degrades to metered hydration and keeps working — worse, not dead.
+ *   2. Be a good guest. Descriptions are cached permanently by noticeId
+ *      (a notice version's text never changes), fetches are sequential, and
+ *      nothing is re-fetched that is already known. This is public data on a
+ *      public government site, but "allowed" is not the same as "polite".
+ */
+export const SAM_UI_OPPORTUNITY_URL = 'https://sam.gov/api/prod/opps/v2/opportunities';
+
 export interface ProbeOutcome {
   url: string;
   status: number;
