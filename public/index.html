@@ -1,0 +1,364 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Federal contract scanner</title>
+<meta name="description" content="Scans the last seven days of federal contract opportunities and says which are worth reading.">
+<style>
+  /*
+   * Designed for a laptop. The people who matter here — an agency owner
+   * evaluating the tool, an engineer reading the code — are on desktops, so the
+   * layout uses the width rather than being a phone column stretched out.
+   *
+   * One stacking rule at the bottom keeps a phone from being embarrassing. It is
+   * a safety net, not a mobile design: a portfolio link does get opened on a
+   * phone, and a broken page is a worse first impression than a plain one.
+   */
+  :root {
+    --bg: #fbfbf9;
+    --surface: #ffffff;
+    --ink: #17171a;
+    --muted: #55555f;
+    --faint: #86868f;
+    --line: #e5e5e1;
+    --line-soft: #efefeb;
+    --accent: #1c4f8f;
+    --clear: #176545;
+    --conditional: #8a6212;
+    --warn-bg: #fdf6e3;
+    --warn-line: #e8d9a8;
+    --err-bg: #fdf1f0;
+    --err-line: #f0cfcb;
+    --err-ink: #99291e;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #121216; --surface: #1a1a20; --ink: #ededf1; --muted: #a4a4af;
+      --faint: #75757f; --line: #2b2b33; --line-soft: #232329; --accent: #7fadE4;
+      --clear: #5cc194; --conditional: #d6aa52; --warn-bg: #29230f;
+      --warn-line: #493e20; --err-bg: #2a1917; --err-line: #4e2a25; --err-ink: #eba69d;
+    }
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 16px/1.55 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+
+  /* --- shell: fixed sidebar, results take the rest --- */
+  .shell {
+    display: grid;
+    grid-template-columns: 19rem minmax(0, 1fr);
+    gap: 3.5rem;
+    max-width: 78rem;
+    margin: 0 auto;
+    padding: 3rem 2.5rem 5rem;
+    align-items: start;
+  }
+
+  /* --- sidebar --- */
+  .side { position: sticky; top: 3rem; }
+  .side h1 { font-size: 1.45rem; line-height: 1.25; margin: 0 0 .6rem; letter-spacing: -.015em; }
+  .side .tagline { margin: 0 0 1.9rem; color: var(--muted); font-size: .93rem; }
+
+  .field { display: flex; flex-direction: column; gap: .35rem; margin-bottom: 1.1rem; }
+  .field label { font-size: .74rem; text-transform: uppercase; letter-spacing: .07em; color: var(--faint); }
+  select {
+    font: inherit; width: 100%; padding: .55rem .65rem; border-radius: 7px;
+    border: 1px solid var(--line); background: var(--surface); color: var(--ink);
+    cursor: pointer;
+  }
+  select:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+  .side-note {
+    margin-top: 2.2rem; padding-top: 1.3rem; border-top: 1px solid var(--line);
+    font-size: .82rem; color: var(--faint); line-height: 1.5;
+  }
+  .side-note p { margin: 0 0 .8rem; }
+  .side-note strong { color: var(--muted); }
+  .side-note a { color: var(--muted); }
+  .side-note code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .9em; }
+
+  /* --- the rejection line: the product, so it leads --- */
+  .verdict {
+    margin: 0 0 .4rem; font-size: 1.75rem; line-height: 1.25;
+    letter-spacing: -.02em; font-weight: 400; color: var(--muted);
+  }
+  .verdict strong { font-weight: 620; color: var(--ink); }
+  .verdict .worth { color: var(--clear); }
+  .asof { margin: 0 0 2rem; font-size: .84rem; color: var(--faint); }
+
+  .banner {
+    padding: .8rem 1rem; border-radius: 8px; font-size: .89rem;
+    margin-bottom: 1.5rem; border: 1px solid; max-width: 44rem;
+  }
+  .banner.warn { background: var(--warn-bg); border-color: var(--warn-line); color: var(--ink); }
+  .banner.err  { background: var(--err-bg);  border-color: var(--err-line);  color: var(--err-ink); }
+
+  /* --- results: the width buys a score gutter and one-line metadata --- */
+  ol.results { list-style: none; margin: 0; padding: 0; }
+  .row {
+    display: grid; grid-template-columns: 3.6rem minmax(0, 1fr);
+    gap: 0 1.4rem; padding: 1.35rem 0; border-bottom: 1px solid var(--line-soft);
+  }
+  .row:first-child { padding-top: .25rem; }
+  .score {
+    font-variant-numeric: tabular-nums; font-weight: 620; font-size: 1.5rem;
+    line-height: 1.1; letter-spacing: -.02em; color: var(--faint);
+  }
+  .score.clear { color: var(--clear); }
+  .score.conditional { color: var(--conditional); }
+  .row h3 { margin: 0 0 .4rem; font-size: 1.05rem; font-weight: 600; line-height: 1.35; }
+  .row h3 a { color: inherit; text-decoration: none; }
+  .row h3 a:hover { text-decoration: underline; text-decoration-color: var(--accent); text-underline-offset: 3px; }
+  .why { margin: 0 0 .55rem; color: var(--muted); font-size: .95rem; max-width: 48rem; }
+  .meta { display: flex; flex-wrap: wrap; gap: .25rem .9rem; font-size: .81rem; color: var(--faint); }
+  .meta .agency { color: var(--muted); font-weight: 500; }
+
+  .row.dim { opacity: .58; }
+  .row.dim:hover, .row.dim:focus-within { opacity: 1; }
+  li.cut {
+    display: flex; align-items: center; gap: 1rem; margin: 1.6rem 0 .4rem;
+    font-size: .74rem; text-transform: uppercase; letter-spacing: .08em; color: var(--faint);
+  }
+  li.cut::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+
+  /* --- designed states, not accidents --- */
+  .state { max-width: 40rem; padding: .5rem 0 2rem; }
+  .state h2 { font-size: 1.3rem; margin: 0 0 .7rem; letter-spacing: -.01em; }
+  .state p { margin: 0 0 .8rem; color: var(--muted); font-size: .97rem; }
+  .state code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .85rem; }
+
+  .skeleton { display: grid; gap: 1.6rem; padding-top: .5rem; }
+  .skeleton div {
+    height: 4.6rem; border-radius: 8px; background: var(--surface);
+    border: 1px solid var(--line-soft); animation: pulse 1.5s ease-in-out infinite;
+  }
+  .skeleton div:nth-child(2) { animation-delay: .12s; }
+  .skeleton div:nth-child(3) { animation-delay: .24s; }
+  .skeleton div:nth-child(4) { animation-delay: .36s; }
+  @keyframes pulse { 0%,100% { opacity: .45 } 50% { opacity: .8 } }
+  @media (prefers-reduced-motion: reduce) { .skeleton div { animation: none } }
+
+  /* Safety net only. Not a mobile design — see the note at the top. */
+  @media (max-width: 60rem) {
+    .shell { grid-template-columns: 1fr; gap: 2rem; padding: 2rem 1.2rem 3rem; }
+    .side { position: static; }
+    .verdict { font-size: 1.35rem; }
+    .row { grid-template-columns: 2.8rem minmax(0, 1fr); gap: 0 1rem; }
+    .score { font-size: 1.25rem; }
+  }
+</style>
+</head>
+<body>
+<div class="shell">
+
+  <aside class="side">
+    <h1>Which federal contracts are worth reading?</h1>
+    <p class="tagline">The last seven days of federal IT opportunities, read and
+       judged. Nobody wants to read sixty procurement notices to find the few
+       that matter.</p>
+
+    <div class="field">
+      <label for="area">What you do</label>
+      <select id="area"></select>
+    </div>
+    <div class="field">
+      <label for="setAside">Set-aside</label>
+      <select id="setAside">
+        <option value="any">Any</option>
+        <option value="small-business">Small business only</option>
+      </select>
+    </div>
+
+    <div class="side-note">
+      <p><strong>Federal prime contracts only.</strong> SAM.gov carries no state,
+         local or education procurement, and federal bidding needs SAM
+         registration. A small agency will find real work here, but not all of it
+         is realistically winnable — which is exactly what the score is for.</p>
+      <p>Notices from <a href="https://sam.gov">SAM.gov</a>, refreshed daily.
+         Judged by <code>claude-haiku-4-5</code>.</p>
+    </div>
+  </aside>
+
+  <main id="out" aria-live="polite"></main>
+
+</div>
+
+<script>
+const API = window.location.hostname === 'localhost'
+  ? 'http://localhost:8787'
+  : 'https://contract-scanner.huauangdel.workers.dev';
+
+const out = document.getElementById('out');
+const areaSel = document.getElementById('area');
+const setAsideSel = document.getElementById('setAside');
+
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) =>
+  ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+
+const fmtDate = (iso) => {
+  if (!iso) return null;
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? null
+    : d.toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+};
+
+const fmtStamp = (iso) => {
+  if (!iso) return 'unknown';
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? 'unknown'
+    : d.toLocaleString(undefined, { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' });
+};
+
+// Service areas come from the API so the page and the Worker cannot disagree
+// about what exists — the area list changed twice during the build.
+async function loadMeta() {
+  try {
+    const meta = await (await fetch(`${API}/api/meta`)).json();
+    areaSel.innerHTML = meta.areas
+      .map((a) => `<option value="${esc(a.id)}">${esc(a.label)}</option>`).join('');
+    areaSel.value = meta.defaults.area;
+  } catch {
+    // The scan below surfaces the failure properly; don't double-report it.
+    areaSel.innerHTML = '<option value="software-development">Software development</option>';
+  }
+}
+
+function skeleton() {
+  out.innerHTML = `<div class="skeleton"><div></div><div></div><div></div><div></div></div>`;
+}
+
+/**
+ * The empty state. A thin week is a real outcome, not a bug — say so plainly
+ * rather than leaving a spinner running or implying something broke.
+ */
+function empty(area) {
+  out.innerHTML = `
+    <div class="state">
+      <h2>Nothing matched this week</h2>
+      <p>No ${esc(area)} notices were posted to SAM.gov in the last seven days.
+         That happens — federal posting is lumpy, and a quiet week is a quiet week.</p>
+      <p>Try another service area, or check back tomorrow after the next refresh.</p>
+    </div>`;
+}
+
+/**
+ * The failure state. Must never be mistaken for a quiet week: telling a visitor
+ * that federal procurement paused is never true, and it is the most damaging
+ * thing this page could say.
+ */
+function failed(message) {
+  out.innerHTML = `
+    <div class="state">
+      <div class="banner err">
+        <strong>Couldn't reach the opportunity feed.</strong>
+        This is a problem at our end or SAM.gov's — not an empty week.
+      </div>
+      <p>Nothing is being hidden from you; there is simply nothing to show until
+         the feed responds. Try again in a few minutes.</p>
+      ${message ? `<p><code>${esc(message)}</code></p>` : ''}
+    </div>`;
+}
+
+function render(data) {
+  const { matched, worthReading, stillReading, results, asOf, stale } = data;
+
+  if (matched === 0) return empty(areaSel.selectedOptions[0]?.textContent ?? 'matching');
+
+  const banners = [];
+  if (stale) {
+    banners.push(`<div class="banner warn"><strong>Showing yesterday's notices.</strong>
+      Today's refresh hasn't succeeded yet, so this list may be a day behind.</div>`);
+  }
+  if (stillReading > 0) {
+    banners.push(`<div class="banner warn"><strong>Still reading ${stillReading}
+      more ${stillReading === 1 ? 'notice' : 'notices'}.</strong>
+      Each one is read in full, which takes a moment on a first visit.
+      Refresh shortly and the count below will be complete.</div>`);
+  }
+
+  // The rejection line must never overstate itself. While notices are unread the
+  // count is partial by definition — a bold "4 worth reading" with 35 unread is
+  // a wrong number wearing a finished number's clothes, and a banner underneath
+  // does not undo that.
+  const verdict = stillReading > 0
+    ? `<p class="verdict">
+         <strong class="worth">${worthReading}</strong> worth reading so far,
+         of <strong>${results.length}</strong> read
+       </p>
+       <p class="asof">
+         ${matched} matched your filters · ${stillReading} still to read ·
+         opportunities as of ${esc(fmtStamp(asOf))}
+       </p>`
+    : `<p class="verdict">
+         <strong>${matched}</strong> matched your filters ·
+         <strong class="worth">${worthReading}</strong> worth reading
+       </p>
+       <p class="asof">Opportunities as of ${esc(fmtStamp(asOf))}</p>`;
+
+  // Rejected notices stay on the page rather than being hidden: showing what was
+  // set aside, and why, is the demonstration. They are dimmed and sit below a
+  // marked cut so the eye lands on the few that matter.
+  let cutMarked = false;
+  const rows = results.map((r) => {
+    let divider = '';
+    if (!cutMarked && r.band === 'no') {
+      cutMarked = true;
+      const below = results.length - results.indexOf(r);
+      divider = `<li class="cut" aria-hidden="true">Below the bar —
+        ${below} ${below === 1 ? 'notice' : 'notices'} read and set aside</li>`;
+    }
+
+    // Every bit is wrapped: bare text nodes are not flex items, so the gap
+    // between them collapses and the metadata runs together as one word.
+    const bits = [];
+    if (r.agency) bits.push(`<span class="agency">${esc(r.agency)}</span>`);
+    if (r.noticeType) bits.push(`<span>${esc(r.noticeType)}</span>`);
+    const due = fmtDate(r.dueDate);
+    bits.push(`<span>${due ? `Due ${esc(due)}` : 'No stated deadline'}</span>`);
+    // Only shown when the notice text actually stated a figure. SAM.gov has no
+    // value field at all, so anything here was read out of the description.
+    if (r.valueEstimate != null) {
+      bits.push(`<span>$${Number(r.valueEstimate).toLocaleString()}</span>`);
+    }
+    if (r.setAside) bits.push(`<span>${esc(r.setAside)}</span>`);
+
+    return divider + `
+      <li class="row${r.band === 'no' ? ' dim' : ''}">
+        <div class="score ${esc(r.band)}">${r.score}</div>
+        <div>
+          <h3>${r.url ? `<a href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.title)}</a>` : esc(r.title)}</h3>
+          <p class="why">${esc(r.justification)}</p>
+          <div class="meta">${bits.join('')}</div>
+        </div>
+      </li>`;
+  }).join('');
+
+  out.innerHTML = banners.join('') + verdict + `<ol class="results">${rows}</ol>`;
+}
+
+async function scan() {
+  skeleton();
+  const params = new URLSearchParams({ area: areaSel.value, setAside: setAsideSel.value });
+  try {
+    const res = await fetch(`${API}/api/scan?${params}`);
+    const data = await res.json();
+    if (!res.ok || data.error) return failed(data.error);
+    render(data);
+  } catch (err) {
+    failed(err.message);
+  }
+}
+
+areaSel.addEventListener('change', scan);
+setAsideSel.addEventListener('change', scan);
+
+// Results on load, with no input required. A visitor who touches nothing still
+// sees the tool working.
+loadMeta().then(scan);
+</script>
+</body>
+</html>

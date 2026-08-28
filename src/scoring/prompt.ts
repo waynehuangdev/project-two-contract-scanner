@@ -1,5 +1,4 @@
-import { SERVICE_AREAS } from '../config.ts';
-import type { Notice, ServiceArea } from '../types.ts';
+import type { Notice } from '../types.ts';
 
 /**
  * The scoring prompt.
@@ -29,55 +28,87 @@ import type { Notice, ServiceArea } from '../types.ts';
  */
 
 /**
- * What the model must return. Enforced as a tool schema, not parsed from prose.
+ * What the model must return: ONE reading of the notice, then a score per area.
  *
- * `statedDeadline` was here and has been removed. The structured deadline is
- * already in the prompt, and asking the model to report a deadline "only if the
- * description states one, and do not copy the structured field" produced 43
- * copies of the structured field in a single run. The instruction was
- * unnatural: the value was right there and the model reported it.
+ * The three areas used to be three independent calls. That produced the EOS
+ * inversion — the same notice read three times, arriving at contradictory facts
+ * each time. In one area's justification the model found "likely vendor lock-in
+ * through existing training infrastructure"; in another's, "no named incumbent
+ * product". Same text, same run.
  *
- * The lesson is not "the model disobeyed". It is that a field whose correct
- * value is almost always null, sitting next to the same value in non-null form,
- * is a trap of the prompt's own making. Deleting it removes the trap and an
- * entire class of false alarm. `valueEstimate` stays, because nothing in the
- * prompt supplies a figure — so any number there IS an invention, and across
- * that same run there were zero.
+ * `reading` and `disqualifiers` fix that structurally. The model states what the
+ * notice IS and what in it bars a bidder, once, and every area score is assigned
+ * from those shared facts. Consistency stops being something we hope for.
+ *
+ * It also costs a third as much — which matters, because the 50-subrequest
+ * ceiling is what decides how fast a cold profile fills in.
+ *
+ * `statedDeadline` was removed earlier: the prompt supplied the structured
+ * deadline and then asked the model not to copy it, which it did 43 times in one
+ * run. A field whose correct value is almost always null, sitting beside the same
+ * value in non-null form, is a trap of the prompt's own making. `valueEstimate`
+ * stays, because nothing in the prompt supplies a figure — so a number there is
+ * a genuine invention.
  */
+const AREA_SCORE = {
+  type: 'object',
+  properties: {
+    score: { type: 'integer', minimum: 0, maximum: 100 },
+    justification: {
+      type: 'string',
+      maxLength: 240,
+      description:
+        'One sentence citing something SPECIFIC from this notice. "Matches your service area" is a failure. ' +
+        'For 50-79, name the single condition that would make it winnable.',
+    },
+  },
+  required: ['score', 'justification'],
+} as const;
+
 export const SCORE_SCHEMA = {
   type: 'object',
   properties: {
-    score: {
-      type: 'integer',
-      minimum: 0,
-      maximum: 100,
-      description:
-        '80-100: any competent shop in this service area could bid; scope is legible and self-contained. ' +
-        '50-79: plausible ONLY with a specific domain niche, or against a specific incumbent risk — the justification must name that condition. ' +
-        '0-49: not this business — wrong buyer, wrong capability, or effectively pre-awarded.',
-    },
-    justification: {
+    reading: {
       type: 'string',
-      maxLength: 220,
+      maxLength: 300,
       description:
-        'One sentence, referencing something SPECIFIC from this notice — a named system, a deliverable, a stated constraint. ' +
-        '"Matches your service area" is a failure, not a justification. If the score is 50-79, name the condition that would make it winnable.',
+        'What is actually being bought, in one sentence, before considering who might bid. ' +
+        'A product purchase, a custom build, a maintenance renewal, a site survey, a licence, a professional service. ' +
+        'This is the single factual basis all three scores below must be consistent with.',
+    },
+    disqualifiers: {
+      type: 'array',
+      items: { type: 'string' },
+      description:
+        'Things stated IN THE TEXT that bar an outside bidder: a named sole source, a proprietary product, ' +
+        'required clearance, a specific certification, physical or on-site work, prime-only scale. ' +
+        'Quote or paraphrase the notice. Empty array if none — an empty array is a common and correct answer. ' +
+        'Do NOT list ordinary competition, missing attachments, past-performance requirements or short deadlines.',
+    },
+    areas: {
+      type: 'object',
+      properties: {
+        'software-development': AREA_SCORE,
+        'web-digital': AREA_SCORE,
+        'data-analytics': AREA_SCORE,
+      },
+      required: ['software-development', 'web-digital', 'data-analytics'],
     },
     valueEstimate: {
       type: ['number', 'null'],
       description:
-        'Dollar figure ONLY if the notice text states one explicitly. Null otherwise. Never estimated, never inferred from scale or scope.',
+        'Dollar figure ONLY if the notice text states one explicitly. Null otherwise. Never estimated, never inferred from scale.',
     },
     unfamiliarTerms: {
       type: 'array',
       items: { type: 'string' },
       description:
-        'PROPER NOUNS ONLY — named systems, programmes, products or acronyms that name one specific thing (PAWSS, NNOMPEAS, Centrak RTLS). ' +
-        'Not generic phrases, role descriptions or ordinary domain language. Only include a term whose meaning would actually change your score. ' +
-        'Empty array if none. Listing a genuine unknown is correct behaviour; listing ordinary words wastes a lookup and teaches you nothing.',
+        'PROPER NOUNS ONLY — named systems, programmes, products or acronyms naming one specific thing (PAWSS, NNOMPEAS, Centrak RTLS). ' +
+        'Not generic phrases, role descriptions or ordinary domain language. Only terms whose meaning would change a score. ' +
+        'Empty array if none.',
     },
   },
-  required: ['score', 'justification', 'valueEstimate', 'unfamiliarTerms'],
+  required: ['reading', 'disqualifiers', 'areas', 'valueEstimate', 'unfamiliarTerms'],
 } as const;
 
 export const SYSTEM_PROMPT = `You screen US federal contract opportunities for a small digital agency.
@@ -92,12 +123,29 @@ You do not know which socio-economic certifications they hold — WOSB, 8(a), SD
 
 So a set-aside is favourable, not disqualifying: it tells you the buyer wants a small business rather than a prime. Where a SPECIFIC certification is required, that is a CONDITION to state in the justification, not a reason to score down. "Winnable if you hold WOSB certification" is the useful answer; "the agency is not WOSB-certified" is a fact you invented.
 
+HOW TO WORK THROUGH THIS — IN ORDER
+
+1. READ the notice and say what is actually being bought. A custom build? A product purchase? A maintenance renewal? A site survey? A licence? A professional service that is not engineering? Put that in "reading".
+
+2. LIST what in the TEXT bars an outside bidder — a named sole source, a proprietary product, required clearance or certification, physical on-site work, prime-only scale. Put those in "disqualifiers". Most notices have none, and an empty list is a normal answer.
+
+3. THEN score each of the three service areas, using the same reading and the same disqualifiers for all three.
+
+Steps 1 and 2 are shared facts. Three areas must never disagree about what the notice IS or what bars a bidder — only about whether the work fits that area. If you find yourself writing "likely vendor lock-in" for one area and "no incumbent named" for another on the same notice, one of them is invented.
+
 THE QUESTION, EXACTLY
 Not "is this technology-related". Not "could a technical person do this".
 
-**Would this specific agency realistically win this specific contract?**
+**Would this specific agency realistically win this specific contract, and is the work in this service area?**
 
 A notice can be entirely about software and still be a 20, because it is a renewal on a vendor's proprietary product, or a prime-scale programme, or needs a cleared facility.
+
+THE THREE SERVICE AREAS
+- software-development — custom applications, backend systems, product engineering, systems integration
+- web-digital — websites, portals, content systems, accessibility work, e-learning and courseware, digital campaigns
+- data-analytics — data pipelines, dashboards, reporting, ML and applied AI on data
+
+They overlap. A notice can be a legitimate fit for two of them, or none. Score each on its own merits — do not force a spread.
 
 WHAT MISLEADS
 - The NAICS code is assigned by a contracting officer and is frequently wrong. 541511 "Custom Computer Programming" routinely contains hardware refreshes, licence renewals, staffing vehicles, and in one real case, MEDICAL coding.
@@ -150,7 +198,6 @@ RULES YOU MUST NOT BREAK
 
 export interface ScoreInput {
   notice: Notice;
-  area: ServiceArea;
   /** Term → explanation, from the glossary. Only terms previously flagged and resolved. */
   glossary?: Record<string, string>;
 }
@@ -165,12 +212,9 @@ export interface ScoreInput {
  * this is the same threat with a different entry point, and it gets the same
  * seriousness.
  */
-export function buildUserPrompt({ notice, area, glossary }: ScoreInput): string {
-  const areaLabel = SERVICE_AREAS[area].label;
+export function buildUserPrompt({ notice, glossary }: ScoreInput): string {
   const parts: string[] = [];
 
-  parts.push(`SERVICE AREA THE READER SELLS: ${areaLabel}`);
-  parts.push('');
   parts.push('NOTICE');
   parts.push(`Title: ${notice.title}`);
   parts.push(`Agency: ${notice.agency ?? 'not stated'}`);

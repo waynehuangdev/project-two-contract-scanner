@@ -20,12 +20,13 @@ export interface Env {
 }
 
 /**
- * Day 2 Worker: cached fetch, no scoring yet.
+ * The Worker.
  *
- * The response shape already carries `worthReading` and `stale` even though
- * nothing sets `worthReading` until Day 3. Getting the shape right now means
- * the frontend is written once against its final contract rather than
- * retrofitted around a field that appeared late.
+ *   /api/health       diagnostics, including SAM.gov calls spent today
+ *   /api/meta         service areas and defaults, so the page cannot drift
+ *   /api/description  one notice's text, cached forever — the unmetered path
+ *   /api/notices      hard-filtered pool, unscored
+ *   /api/scan         the product: filtered, read, judged, ranked
  */
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
@@ -35,7 +36,7 @@ export default {
       const calls = env.NOTICES ? await new CallCounter(env.NOTICES).get() : null;
       return json({
         ok: true,
-        stage: 'day-3',
+        stage: 'day-4',
         window: trailingWindow(),
         samKeyConfigured: Boolean(env.SAM_API_KEY),
         kvBound: Boolean(env.NOTICES),
@@ -175,9 +176,11 @@ async function scan(url: URL, env: Env): Promise<Response> {
   const scored: Array<{ notice: Notice; result: Awaited<ReturnType<typeof scoreNotice>> }> = [];
   const unscored: Notice[] = [];
 
-  // Cached first, so a warm profile costs no model calls at all.
+  // Cached first, so a warm scan costs no model calls at all. The cache is keyed
+  // by notice alone — one reading answers for every service area — so switching
+  // area in the UI is free after the first visitor has warmed a notice.
   for (const notice of matched) {
-    const hit = await scores.get(notice.noticeId, profile);
+    const hit = await scores.get(notice.noticeId);
     if (hit) scored.push({ notice, result: hit });
     else unscored.push(notice);
   }
@@ -190,8 +193,8 @@ async function scan(url: URL, env: Env): Promise<Response> {
   for (const notice of toScore) {
     const description = await readDescription(notice, env);
     try {
-      const result = await scoreNotice({ ...notice, description }, profile.area, model, glossary);
-      await scores.put(notice.noticeId, profile, result);
+      const result = await scoreNotice({ ...notice, description }, model, glossary);
+      await scores.put(notice.noticeId, result);
       scored.push({ notice, result });
     } catch {
       // One notice failing must not fail the scan. It stays unread and gets
@@ -199,8 +202,11 @@ async function scan(url: URL, env: Env): Promise<Response> {
     }
   }
 
-  scored.sort((a, b) => b.result.score - a.result.score);
-  const worthReading = scored.filter((s) => s.result.score >= WORTH_READING_MIN);
+  // Every verdict below is read from the selected area of a shared reading.
+  const verdict = (r: Awaited<ReturnType<typeof scoreNotice>>) => r.areas[profile.area];
+
+  scored.sort((a, b) => verdict(b.result).score - verdict(a.result).score);
+  const worthReading = scored.filter((s) => verdict(s.result).score >= WORTH_READING_MIN);
 
   return json({
     profile,
@@ -221,9 +227,14 @@ async function scan(url: URL, env: Env): Promise<Response> {
       valueEstimate: result.valueEstimate,
       setAside: notice.setAside,
       url: notice.url,
-      score: result.score,
-      band: result.band,
-      justification: result.justification,
+      score: verdict(result).score,
+      band: verdict(result).band,
+      justification: verdict(result).justification,
+      // The shared reading, exposed because it is the same for every area and
+      // is often the most useful line on the row — "a sole-source renewal of a
+      // proprietary product" says more than any score.
+      reading: result.reading,
+      disqualifiers: result.disqualifiers,
     })),
   });
 }

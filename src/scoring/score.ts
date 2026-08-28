@@ -15,30 +15,42 @@ import {
 } from './glossary.ts';
 
 /**
- * Two-pass scoring.
+ * Two-pass scoring, ONE call per notice for all three service areas.
  *
- *   Pass 1  score the notice; the model flags any named system it is not
- *           confident about
- *   Lookup  resolve only those terms, cached forever by term
- *   Pass 2  re-score with that context — ONLY when the lookup actually added
- *           something
+ *   Pass 1  read the notice; state what is being bought and what bars a bidder;
+ *           score every area from those shared facts; flag unfamiliar names
+ *   Lookup  resolve only the flagged terms, cached forever by term
+ *   Pass 2  re-read with that context — ONLY when the lookup added something
  *
- * The second pass is conditional on purpose. Most notices flag nothing, and
- * for those the cost is exactly one call. Rescoring unconditionally would
- * double the bill to re-derive an identical answer.
+ * Scoring all areas together is not a cost optimisation that happens to be
+ * cheaper. It is the fix for a real defect: three independent calls produced
+ * three independent readings, and on one notice the model found "likely vendor
+ * lock-in" in one area and "no named incumbent product" in another, on the same
+ * text in the same run. Sharing the reading makes that impossible by
+ * construction rather than by instruction.
+ *
+ * The saving is real too — a third of the calls — and it is what makes a cold
+ * scan fit inside Cloudflare's 50-subrequest ceiling.
  */
 
-export interface ScoreResult {
-  noticeId: string;
+export interface AreaVerdict {
   score: number;
   band: 'clear' | 'conditional' | 'no';
   justification: string;
+}
+
+export interface ScoreResult {
+  noticeId: string;
+  /** What is being bought, stated once. Every area verdict is consistent with this. */
+  reading: string;
+  /** What in the text bars an outside bidder. Shared across areas. */
+  disqualifiers: string[];
+  areas: Record<ServiceArea, AreaVerdict>;
   valueEstimate: number | null;
   unfamiliarTerms: string[];
-  /** True when a glossary lookup changed the inputs and the notice was scored twice. */
   enriched: boolean;
-  /** Pass 1's score, kept when enrichment moved it. The visible payoff of the extra call. */
-  scoreBeforeEnrichment?: number;
+  /** Per-area score before enrichment, kept when it moved. The visible payoff of the extra call. */
+  scoresBeforeEnrichment?: Record<ServiceArea, number>;
   modelCalls: number;
 }
 
@@ -52,15 +64,18 @@ export interface ModelClient {
   }): Promise<Record<string, unknown>>;
 }
 
-const MAX_TOKENS_SCORE = 400;
+// Larger than the single-area budget: one response now carries three
+// justifications plus the shared reading.
+const MAX_TOKENS_SCORE = 900;
 const MAX_TOKENS_GLOSSARY = 700;
 
 /** Cap on terms resolved per notice — a runaway flag list should not become a runaway bill. */
 const MAX_TERMS_PER_NOTICE = 5;
 
+const AREAS: ServiceArea[] = ['software-development', 'web-digital', 'data-analytics'];
+
 export async function scoreNotice(
   notice: Notice,
-  area: ServiceArea,
   model: ModelClient,
   store: GlossaryStore,
   opts: { enrich?: boolean } = {},
@@ -72,7 +87,7 @@ export async function scoreNotice(
   // --- pass 1 ---------------------------------------------------------------
   const first = await model.complete({
     system: SYSTEM_PROMPT,
-    user: buildUserPrompt({ notice: prepared, area }),
+    user: buildUserPrompt({ notice: prepared }),
     schema: SCORE_SCHEMA,
     maxTokens: MAX_TOKENS_SCORE,
   });
@@ -81,7 +96,7 @@ export async function scoreNotice(
 
   const terms = enrich ? pass1.unfamiliarTerms.slice(0, MAX_TERMS_PER_NOTICE) : [];
   if (terms.length === 0) {
-    return { ...pass1, band: band(pass1.score), enriched: false, modelCalls: calls };
+    return { ...pass1, enriched: false, modelCalls: calls };
   }
 
   // --- lookup ---------------------------------------------------------------
@@ -103,13 +118,12 @@ export async function scoreNotice(
     });
   } catch {
     // Enrichment is an improvement, never a dependency. A failed lookup returns
-    // pass 1 rather than failing the notice — a slightly worse score beats a
-    // hole in the results.
-    return { ...pass1, band: band(pass1.score), enriched: false, modelCalls: calls };
+    // pass 1 rather than failing the notice.
+    return { ...pass1, enriched: false, modelCalls: calls };
   }
 
   if (Object.keys(glossary).length === 0) {
-    return { ...pass1, band: band(pass1.score), enriched: false, modelCalls: calls };
+    return { ...pass1, enriched: false, modelCalls: calls };
   }
 
   // --- pass 2 ---------------------------------------------------------------
@@ -117,7 +131,6 @@ export async function scoreNotice(
     system: SYSTEM_PROMPT,
     user: buildUserPrompt({
       notice: prepared,
-      area,
       glossary: Object.fromEntries(
         Object.entries(glossary).map(([term, meaning]) => [term, describeForPrompt(meaning)]),
       ),
@@ -128,44 +141,54 @@ export async function scoreNotice(
   calls++;
   const pass2 = coerce(second, notice.noticeId);
 
-  return {
-    ...pass2,
-    band: band(pass2.score),
-    enriched: true,
-    scoreBeforeEnrichment: pass1.score,
-    modelCalls: calls,
-  };
+  const before = {} as Record<ServiceArea, number>;
+  for (const a of AREAS) before[a] = pass1.areas[a].score;
+
+  return { ...pass2, enriched: true, scoresBeforeEnrichment: before, modelCalls: calls };
 }
 
 /**
  * Coerce a model response into the result shape.
  *
- * Deliberately paranoid about the two fields the prompt forbids inventing. A
- * value or deadline that arrives as a non-number or non-string becomes null
- * rather than being coerced into something plausible — `Number("about $2M")`
- * is NaN, and NaN rendered in a table is how a fabricated figure reaches a
- * reader wearing a number's clothes.
+ * Paranoid about `valueEstimate` specifically: nothing in the prompt supplies a
+ * dollar figure, so any number there is an invention. A non-number becomes null
+ * rather than being coerced into something plausible — `Number("about $2M")` is
+ * NaN, and NaN in a table is a fabricated figure wearing a number's clothes.
  */
 function coerce(
   raw: Record<string, unknown>,
   noticeId: string,
-): Omit<ScoreResult, 'band' | 'enriched' | 'modelCalls'> {
-  const scoreRaw = raw.score;
-  const score =
-    typeof scoreRaw === 'number' && Number.isFinite(scoreRaw)
-      ? Math.max(0, Math.min(100, Math.round(scoreRaw)))
-      : 0; // unscoreable means not surfaced, never surfaced-by-accident
+): Omit<ScoreResult, 'enriched' | 'modelCalls' | 'scoresBeforeEnrichment'> {
+  const rawAreas = (raw.areas ?? {}) as Record<string, unknown>;
+  const areas = {} as Record<ServiceArea, AreaVerdict>;
+
+  for (const area of AREAS) {
+    const entry = (rawAreas[area] ?? {}) as Record<string, unknown>;
+    const s = entry.score;
+    // Unscoreable means not surfaced, never surfaced by accident.
+    const score =
+      typeof s === 'number' && Number.isFinite(s) ? Math.max(0, Math.min(100, Math.round(s))) : 0;
+    areas[area] = {
+      score,
+      band: band(score),
+      justification:
+        typeof entry.justification === 'string' && entry.justification.trim()
+          ? entry.justification.trim()
+          : 'No justification returned.',
+    };
+  }
 
   const value = raw.valueEstimate;
   const terms = raw.unfamiliarTerms;
+  const disq = raw.disqualifiers;
 
   return {
     noticeId,
-    score,
-    justification:
-      typeof raw.justification === 'string' && raw.justification.trim()
-        ? raw.justification.trim()
-        : 'No justification returned.',
+    reading: typeof raw.reading === 'string' ? raw.reading.trim() : '',
+    disqualifiers: Array.isArray(disq)
+      ? disq.filter((d): d is string => typeof d === 'string' && d.trim().length > 0)
+      : [],
+    areas,
     valueEstimate: typeof value === 'number' && Number.isFinite(value) ? value : null,
     unfamiliarTerms: Array.isArray(terms)
       ? terms.filter((t): t is string => typeof t === 'string' && t.trim().length > 0)

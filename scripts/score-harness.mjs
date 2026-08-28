@@ -129,7 +129,7 @@ async function main() {
   const areas = args.area ? [args.area] : ['software-development', 'web-digital', 'data-analytics'];
 
   const plan = args.limit ? Number(args.limit) : labels.labels.length;
-  console.log(`\nScoring ${plan} notices × ${areas.length} area(s)` +
+  console.log(`\nReading ${plan} notices, scoring ${areas.length} area(s) from each` +
     `${enrich ? '' : '  [enrichment OFF]'}\n`);
 
   const rows = [];
@@ -144,34 +144,38 @@ async function main() {
     }
     const notice = { ...normalizeSamRecord(raw), description: descCache[label.noticeId] ?? null };
 
+    // ONE call per notice, all areas. Three separate calls produced three
+    // separate readings and the model contradicted itself on the same text.
+    const r = await scoreNotice(notice, model, glossary, { enrich });
+    totalCalls += r.modelCalls;
+
     for (const area of areas) {
       const expected = label.expected?.[area];
       if (!expected) continue;
-
-      const r = await scoreNotice(notice, area, model, glossary, { enrich });
-      totalCalls += r.modelCalls;
+      const v = r.areas[area];
 
       rows.push({
         title: label.title,
         area,
         expected,
-        got: r.band,
-        score: r.score,
-        hit: r.band === expected,
-        justification: r.justification,
+        got: v.band,
+        score: v.score,
+        hit: v.band === expected,
+        justification: v.justification,
+        reading: r.reading,
+        disqualifiers: r.disqualifiers,
         terms: r.unfamiliarTerms,
         enriched: r.enriched,
-        before: r.scoreBeforeEnrichment,
+        before: r.scoresBeforeEnrichment?.[area],
         provisional: Boolean(label.provisional),
-        // Only valueEstimate now. statedDeadline was removed from the schema
-        // after it produced 43 false alarms in one run by copying a field the
-        // prompt itself supplied. Nothing supplies a dollar figure, so a number
-        // here is a genuine invention.
+        // Only valueEstimate. statedDeadline was removed from the schema after
+        // it produced 43 false alarms in one run by copying a field the prompt
+        // itself supplied. Nothing supplies a figure, so a number is invention.
         fabricated: r.valueEstimate !== null ? ['valueEstimate'] : [],
         note: label.note,
       });
-      process.stdout.write(`\r  scored ${rows.length}…`);
     }
+    process.stdout.write(`\r  read ${rows.length} rows…`);
   }
   console.log('\r                         ');
 
@@ -209,6 +213,20 @@ function report(rows, totalCalls, enrich) {
   }
   console.log('─'.repeat(78));
 
+  // The refactor's own guarantee, verified rather than assumed: every area of a
+  // notice must have come from one reading.
+  const byNotice = new Map();
+  for (const r of rows) {
+    if (!byNotice.has(r.title)) byNotice.set(r.title, new Set());
+    byNotice.get(r.title).add(r.reading);
+  }
+  const split = [...byNotice.entries()].filter(([, readings]) => readings.size > 1);
+  if (split.length) {
+    console.log(`\n  !! ${split.length} notice(s) produced more than one reading — the shared-facts`);
+    console.log('     guarantee is not holding. This is the EOS inversion returning.');
+    for (const [title] of split.slice(0, 5)) console.log(`     ${title.slice(0, 60)}`);
+  }
+
   const show = args.show === 'all' ? rows : rows.filter((r) => !r.hit || r.provisional);
   if (show.length) {
     console.log(args.show === 'all' ? '\nALL ROWS\n' : '\nDISAGREEMENTS AND PROVISIONALS\n');
@@ -216,9 +234,11 @@ function report(rows, totalCalls, enrich) {
       const mark = r.provisional ? '?' : r.hit ? '✓' : '✗';
       console.log(`${mark} [${r.area}] ${r.title.slice(0, 62)}`);
       console.log(`    expected ${r.expected}   got ${r.got} (${r.score})`);
-      console.log(`    model: ${r.justification}`);
+      console.log(`    reading: ${r.reading}`);
+      if (r.disqualifiers?.length) console.log(`    bars:    ${r.disqualifiers.join(' · ')}`);
+      console.log(`    model:   ${r.justification}`);
       if (r.terms.length) console.log(`    flagged: ${r.terms.join(', ')}`);
-      if (r.note) console.log(`    yours:  ${r.note.slice(0, 150)}`);
+      if (r.note) console.log(`    yours:   ${r.note.slice(0, 150)}`);
       console.log();
     }
   }

@@ -46,37 +46,64 @@ function stubModel(responses) {
   };
 }
 
-const scored = (over = {}) => ({
-  score: 70,
-  justification: 'Something specific about the notice.',
-  valueEstimate: null,
-  unfamiliarTerms: [],
-  ...over,
+/** A full multi-area response. `scores` sets all three areas at once. */
+const scored = ({ scores = 70, ...over } = {}) => {
+  const per = typeof scores === 'number'
+    ? { 'software-development': scores, 'web-digital': scores, 'data-analytics': scores }
+    : scores;
+  return {
+    reading: 'A custom application build with a stated deliverable.',
+    disqualifiers: [],
+    areas: Object.fromEntries(Object.entries(per).map(([a, score]) =>
+      [a, { score, justification: `Specific point about ${a}.` }])),
+    valueEstimate: null,
+    unfamiliarTerms: [],
+    ...over,
+  };
+};
+const sw = (r) => r.areas['software-development'];
+
+test('one call scores all three areas', async () => {
+  // The refactor that fixed the EOS inversion: three independent calls produced
+  // three independent readings, and the model contradicted itself about whether
+  // vendor lock-in existed on the same text in the same run.
+  const model = stubModel([scored({ scores: { 'software-development': 82, 'web-digital': 65, 'data-analytics': 20 } })]);
+  const r = await scoreNotice(notice(), model, new MemoryGlossary());
+
+  assert.equal(r.modelCalls, 1, 'three areas must not cost three calls');
+  assert.equal(r.areas['software-development'].band, 'clear');
+  assert.equal(r.areas['web-digital'].band, 'conditional');
+  assert.equal(r.areas['data-analytics'].band, 'no');
 });
 
-test('no flagged terms means exactly one model call', async () => {
-  const model = stubModel([scored()]);
-  const r = await scoreNotice(notice(), 'software-development', model, new MemoryGlossary());
+test('the shared reading and disqualifiers are returned once, not per area', async () => {
+  // They are what make the three verdicts consistent by construction.
+  const model = stubModel([scored({
+    reading: 'A sole-source renewal of a proprietary product.',
+    disqualifiers: ['Named sole source to Lockheed Martin'],
+    scores: 5,
+  })]);
+  const r = await scoreNotice(notice(), model, new MemoryGlossary());
 
-  assert.equal(r.modelCalls, 1, 'the common case must not pay for a second pass');
-  assert.equal(r.enriched, false);
-  assert.equal(r.band, 'conditional');
+  assert.equal(r.reading, 'A sole-source renewal of a proprietary product.');
+  assert.deepEqual(r.disqualifiers, ['Named sole source to Lockheed Martin']);
 });
 
 test('flagged terms trigger lookup then a rescore', async () => {
   const model = stubModel([
-    scored({ score: 75, unfamiliarTerms: ['PAWSS'] }),
+    scored({ scores: 75, unfamiliarTerms: ['PAWSS'] }),
     { definitions: [{ term: 'PAWSS', meaning: 'USCG vessel traffic system; core is Lockheed Martin proprietary.' }] },
-    scored({ score: 20, justification: 'Limited to Lockheed Martin proprietary MTM software.' }),
+    scored({ scores: 20 }),
   ]);
 
-  const r = await scoreNotice(notice(), 'software-development', model, new MemoryGlossary());
+  const r = await scoreNotice(notice(), model, new MemoryGlossary());
 
   assert.equal(r.modelCalls, 3);
   assert.equal(r.enriched, true);
-  assert.equal(r.score, 20);
-  assert.equal(r.scoreBeforeEnrichment, 75, 'the payoff of enrichment must stay visible');
-  assert.equal(r.band, 'no');
+  assert.equal(sw(r).score, 20);
+  assert.equal(r.scoresBeforeEnrichment['software-development'], 75,
+    'the payoff of enrichment must stay visible');
+  assert.equal(sw(r).band, 'no');
 });
 
 test('the rescore prompt actually carries the glossary', async () => {
@@ -85,7 +112,7 @@ test('the rescore prompt actually carries the glossary', async () => {
     { definitions: [{ term: 'PAWSS', meaning: 'Lockheed Martin proprietary.' }] },
     scored(),
   ]);
-  await scoreNotice(notice(), 'software-development', model, new MemoryGlossary());
+  await scoreNotice(notice(), model, new MemoryGlossary());
 
   const rescore = model.seen[2];
   assert.match(rescore.user, /Lockheed Martin proprietary/);
@@ -94,13 +121,13 @@ test('the rescore prompt actually carries the glossary', async () => {
 
 test('a failed lookup degrades to the pass-1 score rather than losing the notice', async () => {
   const model = stubModel([
-    scored({ score: 65, unfamiliarTerms: ['PAWSS'] }),
+    scored({ scores: 65, unfamiliarTerms: ['PAWSS'] }),
     new Error('model unavailable'),
   ]);
 
-  const r = await scoreNotice(notice(), 'software-development', model, new MemoryGlossary());
+  const r = await scoreNotice(notice(), model, new MemoryGlossary());
 
-  assert.equal(r.score, 65, 'enrichment is an improvement, never a dependency');
+  assert.equal(sw(r).score, 65, 'enrichment is an improvement, never a dependency');
   assert.equal(r.enriched, false);
 });
 
@@ -111,9 +138,9 @@ test('an unidentifiable term is still passed to the rescore', async () => {
   const model = stubModel([
     scored({ unfamiliarTerms: ['MyPath'] }),
     { definitions: [{ term: 'MyPath', meaning: 'UNKNOWN' }] },
-    scored({ score: 55 }),
+    scored({ scores: 55 }),
   ]);
-  await scoreNotice(notice(), 'software-development', model, new MemoryGlossary());
+  await scoreNotice(notice(), model, new MemoryGlossary());
 
   assert.match(model.seen[2].user, /MYPATH: not identifiable from public knowledge/i);
 });
@@ -121,23 +148,23 @@ test('an unidentifiable term is still passed to the rescore', async () => {
 test('COERCION: a fabricated non-numeric value becomes null, never NaN', async () => {
   // NaN in a table renders as a number-shaped hole and reads as a real figure.
   const model = stubModel([scored({ valueEstimate: 'about $2M' })]);
-  const r = await scoreNotice(notice(), 'software-development', model, new MemoryGlossary());
+  const r = await scoreNotice(notice(), model, new MemoryGlossary());
   assert.equal(r.valueEstimate, null);
 });
 
 test('COERCION: a missing or absurd score fails closed at 0', async () => {
   // Unscoreable must mean not-surfaced, never surfaced by accident.
-  for (const bad of [{ score: undefined }, { score: 'high' }, { score: NaN }]) {
-    const model = stubModel([scored(bad)]);
-    const r = await scoreNotice(notice(), 'software-development', model, new MemoryGlossary());
-    assert.equal(r.score, 0);
-    assert.equal(r.band, 'no');
+  for (const bad of [undefined, 'high', NaN]) {
+    const model = stubModel([scored({ scores: { 'software-development': bad, 'web-digital': 50, 'data-analytics': 50 } })]);
+    const r = await scoreNotice(notice(), model, new MemoryGlossary());
+    assert.equal(sw(r).score, 0);
+    assert.equal(sw(r).band, 'no');
   }
 });
 
 test('COERCION: out-of-range scores are clamped', async () => {
-  const model = stubModel([scored({ score: 140 })]);
-  assert.equal((await scoreNotice(notice(), 'software-development', model, new MemoryGlossary())).score, 100);
+  const model = stubModel([scored({ scores: 140 })]);
+  assert.equal(sw(await scoreNotice(notice(), model, new MemoryGlossary())).score, 100);
 });
 
 test('flagged terms are capped so a runaway list cannot become a runaway bill', async () => {
@@ -151,7 +178,7 @@ test('flagged terms are capped so a runaway list cannot become a runaway bill', 
     },
     scored(),
   ]);
-  await scoreNotice(notice(), 'software-development', model, new MemoryGlossary());
+  await scoreNotice(notice(), model, new MemoryGlossary());
 });
 
 test('the glossary is consulted before the model and caches across notices', async () => {
@@ -195,7 +222,7 @@ test('enrich:false is a real off switch, not a different flavour of on', async (
   // with "x", so pass 2 still ran — on garbage definitions. The comparison it
   // produced was not measuring what it claimed to measure.
   const model = stubModel([scored({ unfamiliarTerms: ['PAWSS', 'MTM'] })]);
-  const r = await scoreNotice(notice(), 'software-development', model, new MemoryGlossary(), { enrich: false });
+  const r = await scoreNotice(notice(), model, new MemoryGlossary(), { enrich: false });
 
   assert.equal(r.modelCalls, 1, 'exactly one call — no lookup, no rescore');
   assert.equal(r.enriched, false);
@@ -210,10 +237,25 @@ test('an UNKNOWN gloss is neutral, never evidence against the notice', async () 
     { definitions: [{ term: 'EOS', meaning: 'UNKNOWN' }] },
     scored(),
   ]);
-  await scoreNotice(notice(), 'software-development', model, new MemoryGlossary());
+  await scoreNotice(notice(), model, new MemoryGlossary());
 
   const rescore = model.seen[2].user;
   assert.match(rescore, /gap in YOUR information/);
   assert.match(rescore, /Do not treat it as evidence for or against/);
   assert.ok(!/usually proprietary/.test(rescore), 'the leading wording must be gone');
+});
+
+test('a response missing an area entirely fails closed at 0 for that area', async () => {
+  // A model that returns two of three areas must not leave the third undefined:
+  // an undefined verdict rendered in a list is a hole, and a hole reads as a
+  // score. Missing means not surfaced.
+  const model = stubModel([{
+    reading: 'x', disqualifiers: [], valueEstimate: null, unfamiliarTerms: [],
+    areas: { 'software-development': { score: 80, justification: 'y' } },
+  }]);
+  const r = await scoreNotice(notice(), model, new MemoryGlossary());
+
+  assert.equal(r.areas['web-digital'].score, 0);
+  assert.equal(r.areas['web-digital'].band, 'no');
+  assert.equal(r.areas['data-analytics'].score, 0);
 });

@@ -1,13 +1,14 @@
 /**
  * Score-cache tests.
  *
- * The key discipline matters more than it looks: a collision between two
- * profiles would show one visitor another visitor's judgements, silently and
- * plausibly enough that nobody would notice.
+ * Two things matter here. One notice is read once and answers for every service
+ * area — that is the whole point of the multi-area refactor. And a prompt change
+ * must retire old entries, because a score cached under a prompt with a known
+ * defect is worse than no score: nothing about it looks stale.
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { ScoreCache, profileHash, MAX_COLD_SCORES_PER_REQUEST } from '../src/scoring/cache.ts';
+import { ScoreCache, MAX_COLD_SCORES_PER_REQUEST } from '../src/scoring/cache.ts';
 
 function memoryKV() {
   const store = new Map();
@@ -19,41 +20,55 @@ function memoryKV() {
   };
 }
 
-const P = (over = {}) => ({ area: 'software-development', size: 'any', setAside: 'any', ...over });
-const result = (score) => ({ noticeId: 'n1', score, band: 'no', justification: 'x', valueEstimate: null, unfamiliarTerms: [], enriched: false, modelCalls: 1 });
-
-test('every distinct profile gets a distinct key', () => {
-  const seen = new Map();
-  for (const area of ['software-development', 'web-digital', 'data-analytics']) {
-    for (const size of ['under-250k', '250k-1m', 'over-1m', 'any']) {
-      for (const setAside of ['small-business', 'any']) {
-        const h = profileHash({ area, size, setAside });
-        assert.ok(!seen.has(h), `collision: ${seen.get(h)} vs ${area}/${size}/${setAside}`);
-        seen.set(h, `${area}/${size}/${setAside}`);
-      }
-    }
-  }
-  assert.equal(seen.size, 24, 'the whole profile space is 24 combinations');
+const result = () => ({
+  noticeId: 'n1',
+  reading: 'A custom application build.',
+  disqualifiers: [],
+  areas: {
+    'software-development': { score: 82, band: 'clear', justification: 'a' },
+    'web-digital': { score: 40, band: 'no', justification: 'b' },
+    'data-analytics': { score: 55, band: 'conditional', justification: 'c' },
+  },
+  valueEstimate: null,
+  unfamiliarTerms: [],
+  enriched: false,
+  modelCalls: 1,
 });
 
-test('the hash is stable across calls', () => {
-  assert.equal(profileHash(P()), profileHash(P()));
-});
-
-test('a different profile does not read another profile\'s score', async () => {
+test('one cached entry answers for every service area', async () => {
+  // The old cache was keyed by profile, so the same notice was read three
+  // times and could disagree with itself. This is the structural fix.
   const cache = new ScoreCache(memoryKV());
-  await cache.put('n1', P(), result(90));
-  assert.equal(await cache.get('n1', P({ area: 'web-digital' })), null);
-  assert.equal((await cache.get('n1', P())).score, 90);
+  await cache.put('n1', result());
+  const hit = await cache.get('n1');
+
+  assert.equal(hit.areas['software-development'].score, 82);
+  assert.equal(hit.areas['web-digital'].score, 40);
+  assert.equal(hit.areas['data-analytics'].score, 55);
+  assert.equal(hit.reading, 'A custom application build.');
+});
+
+test('the prompt version is in the key, so a prompt change retires old scores', async () => {
+  const kv = memoryKV();
+  await new ScoreCache(kv).put('n1', result());
+  const [key] = [...kv.store.keys()];
+  assert.match(key, /^score:v[\w-]+:n1$/, `key was ${key}`);
 });
 
 test('a corrupt entry reads as a miss, not a crash', async () => {
   const kv = memoryKV();
-  await kv.put(`score:${profileHash(P())}:n1`, 'not json');
-  assert.equal(await new ScoreCache(kv).get('n1', P()), null);
+  const cache = new ScoreCache(kv);
+  await cache.put('n1', result());
+  const [key] = [...kv.store.keys()];
+  await kv.put(key, 'not json');
+  assert.equal(await cache.get('n1'), null);
 });
 
-test('the cold-score cap leaves room under the 50-subrequest ceiling', () => {
-  // 6 SAM.gov calls + 12 notices x up to 3 model calls = 42. Room to spare.
-  assert.ok(MAX_COLD_SCORES_PER_REQUEST * 3 + 6 < 50);
+test('a miss is null rather than a thrown error', async () => {
+  assert.equal(await new ScoreCache(memoryKV()).get('nope'), null);
+});
+
+test('the cold-read cap leaves room under the 50-subrequest ceiling', () => {
+  // 6 SAM.gov calls + 14 notices x up to 3 model calls = 48. Tight but inside.
+  assert.ok(MAX_COLD_SCORES_PER_REQUEST * 3 + 6 <= 50);
 });

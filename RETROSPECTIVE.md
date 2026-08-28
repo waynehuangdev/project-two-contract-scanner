@@ -177,8 +177,8 @@ open question in the spec; the answer is unambiguous.
 | Day | Planned | Actual | Notes |
 |---|---|---|---|
 | 1 | 2h | ~3h | Overran on two environmental false starts (wrong endpoint, quoted key), not on the build. Repo pushed to GitHub, private until Day 4. |
-| 2 | 2h | | |
-| 3 | 2h | | |
+| 2 | 2h | ~2h | Descriptions, KV cache, deployed and verified |
+| 3 | 2h | **~4h** | Ran double. Labelled set, prompt, enrichment, scan endpoint — plus four prompt defects and a lying harness to fix. Day 1 also ran over. The plan's one discipline was *cut scope rather than extend time* and it has now been broken twice; being ahead of schedule and having spent 2x the hours are the same fact from different ends. |
 | 4 | 2h | | |
 
 ## Day 2 — what got built
@@ -306,23 +306,119 @@ this work?"** A 15-person shop with no SAM registration, no clearance and no
 incumbent relationship realistically bids on very few federal notices. That is
 the honest standard and the one that produces a rejection line worth showing.
 
-## Where Day 3 starts
+## Day 3 — what got built, and what measurement caught
 
-1. **The free test first:** does `sam.gov/api/prod/opps/v3/...` serve description
-   text without an API key? Everything below branches on the answer, and it costs
-   no quota.
-2. Decide the description strategy and the size control; record both here.
-3. KV notice cache, five buckets derived from one pooled harvest, lazy TTL
-   refresh, stale-serve on a failed refetch.
-4. Call counter in KV — the daily budget is still unknown (no `X-RateLimit`
-   headers, no 429 after 10 requests), so metering our own usage is the only
-   visibility available.
-5. `npm install` from a Windows terminal, then `wrangler deploy` — the Day 1
-   deploy never happened because the Cowork VM and the cloud container both
-   have `registry.npmjs.org` blocked.
-6. Hand-label 15 notices from the corpus at the end of the session.
+Labelled set (`fixtures/labels.json`), scoring prompt, glossary enrichment,
+score cache, `/api/scan`. 87 tests. **87% agreement on the labelled set, zero
+invented figures across 39 rows.**
 
-## Actual cost vs. estimate
+### The scorer found something neither of us had
+
+The NOAA notice is a **sole source to Fathom Science, Inc.** under FAR 6.103-1.
+It quotes the text: *"FATHOM SCIENCE INC. IS THE ONLY SOURCE CAPABLE"*, *"no
+authorized partners or resellers"*, and correctly reads that the presolicitation
+exists to give other firms 15 days to **object**, not to bid.
+
+The hand label said "no" for a weaker reason — research-lab work. The scorer got
+the same answer because the contract is legally unwinnable. Nothing in the title,
+NAICS code or PSC code carries that. It is the best single piece of evidence the
+project has that something read the notice, and it belongs in the README.
+
+The same run found PAWSS restricted to Lockheed Martin, and the IFF notice to be
+a Raytheon **licence purchase** rather than development work at all.
+
+### Four prompt defects, each found by measurement rather than review
+
+Every one was mine, and none would have been visible without the labelled set:
+
+1. **The `statedDeadline` trap.** The prompt supplied the structured deadline,
+   then asked for a deadline "only if the description states one — do not copy
+   the field above". It got copied 43 times in one run. A field whose correct
+   value is almost always null, sitting beside the same value in non-null form,
+   is a trap of the prompt's own making. Deleted.
+2. **The UNKNOWN gloss led the witness.** It read "an unidentifiable named
+   system is usually proprietary, agency-internal, or has an incumbent". The
+   model flagged the phrase *"designated airmen"*, got UNKNOWN back, and
+   concluded that a term it could not find was evidence of an incumbent
+   programme — turning a gap in its own knowledge into a fact about the
+   opportunity, and costing a genuine 80+ notice 55 points.
+3. **Universal boilerplate scored as negative.** Missing attachments, past
+   performance questionnaires, standard FAR provisions, short response windows.
+   All appear on nearly every solicitation, so penalising them penalises the
+   feed uniformly — indistinguishable from not judging at all. This cost the
+   cleanest notice in the set (Inventory Management Software) 55 points.
+4. **The top band was unreachable. 39 rows, nothing above 72.** The bands were
+   being read as a risk scale where any residual uncertainty capped the score.
+   The instruction "score conservatively" made it worse: the model read it as
+   licence to speculate downward — "suggests a rushed follow-on", "likely
+   incumbent-held" — with no text supporting it. That is the same failure as
+   inventing a dollar figure, pointed in a direction that felt safe.
+
+### The harness lied, and that was the worst bug of the day
+
+Description hydration failed, the failures were cached as `null`, and the
+harness printed **85% agreement** on a run where every single justification
+began *"No description text is available."* It measured the title and reported
+a number that looked like a result.
+
+It now aborts rather than reporting, and never caches a failure. A harness that
+fails loudly is worth more than one that is usually right — the confident wrong
+number would have sent the whole day's prompt work in the wrong direction.
+
+### A pattern in my own work, recorded because it repeated
+
+Three times I stated a hypothesis as a finding:
+
+- **"PSC is the discriminating signal NAICS isn't."** Written into the
+  retrospective twice on one week of titles. The labels broke it: PSC 7A20 and
+  7A21 are business application software, not hardware.
+- **"The endpoint is `api.sam.gov/opportunities/v2/search`."** Two guessed URLs
+  404'd. Reading the browser's network log answered it in one look.
+- **"The Worker will hit the same wall as the laptop."** sam.gov refuses this
+  laptop at the TLS layer — 406, then ECONNRESET on every header set including
+  a full browser signature — but answers Cloudflare's edge in 136ms with plain
+  honest headers. A five-minute debug route saved Day 2's entire architecture
+  from being discarded on my say-so.
+
+The correction each time came from measuring something cheap. **When the answer
+is observable, observe it.** Applying that earlier would have saved most of a
+day across the three.
+
+### A constraint worth designing around: 50 subrequests
+
+Cloudflare's free tier caps subrequests per request. A scan spends up to 6 on
+the SAM.gov refresh and each cold notice costs 1-3 model calls, so a cold
+profile over ~45 notices cannot be scored in one request.
+
+`/api/scan` therefore returns **three** numbers: `matched`, `worthReading`, and
+`stillReading`. Truncating silently to 12 and reporting the rejection line over
+those would look identical to a working product and be a lie — "45 matched · 3
+worth reading" computed over 12 notices is simply a wrong number, and the
+rejection line IS the product.
+
+### The labelled set was revised once, deliberately
+
+MyPath moved from `conditional` to `no` after the scorer read the description
+more carefully than the fifteen-minute labelling pass had. Recorded in
+`labels.json` with `revisedFrom` and the reasoning, not silently edited — a
+quiet edit turns the labelled set into something that agrees with the model by
+construction, which is the one thing it exists to prevent.
+
+## Where Day 4 starts
+
+1. **Re-run the harness** and read the justifications. The band recalibration is
+   unverified; the question is whether good notices now reach 80+ without the
+   bad ones following them up.
+2. **Watch the RFS rows.** Same notice scored 72 / 25 / 72 across three areas
+   where the labels said clear / conditional / no — nearly inverted on two. If
+   that survives the recalibration it is instability, not calibration.
+3. Settle the two provisional labels (#7 NNOMPEAS, #13 Marriage Data).
+4. Frontend: three controls, scan on load, the rejection line, **an honest
+   `stillReading` state**, designed empty and failure states, mobile-first.
+5. Custom domain, definition-of-done checklist, README under 400 words.
+6. Optional: IP rate limiting — `RATELIMIT` is already bound.
+
+## Actual cost vs. estimate## Actual cost vs. estimate
 
 Estimate: a few cents/month steady state, ~$0.06 to cold-score a 60-notice
 bucket. Actual: _pending_.
