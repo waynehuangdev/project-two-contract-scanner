@@ -1,61 +1,48 @@
-# Federal IT Contract Scanner
+# Federal contract scanner
 
-> **Day 1 stub.** The real README — under 400 words, covering the problem, the
-> fetch/score split and why, and one tradeoff — gets written on Day 4. This is
-> scaffolding so the file exists and accumulates rather than being invented at
-> the end.
+Reads the last seven days of federal IT contract opportunities and says which
+are worth opening — with one line explaining why.
 
-Scans the last seven days of federal contract opportunities and says which are
-worth reading, with a one-line reason for each.
+**The problem.** SAM.gov posts around a hundred federal IT notices a week, and
+the NAICS codes on them are assigned by contracting officers and are frequently
+wrong. In one week's corpus, 541519 "Other Computer Related Services" was 60% of
+everything and contained RF cables, solid-state drives, a weapons storage
+system, and several licence renewals. Filtering gets you sixty notices. Only
+reading them finds the four worth an afternoon.
 
-## Status
+**The split.** Structured fields are hard constraints — service area maps to
+NAICS, set-aside filters within it. A `WHERE` clause, no model. The model reads
+each description and returns 0–100 with a justification that must cite something
+specific from that notice.
 
-| Day | Scope | State |
-|---|---|---|
-| 1 | Source de-risk: adapter, normalizer, offline fixture | ✅ code done, step zero blocked on API key |
-| 2 | KV notice cache, lazy TTL refresh, call counter | — |
-| 3 | Scoring prompt, `/api/scan` | — |
-| 4 | Frontend, domain, ship | — |
+Why that division earns its keep: a NOAA notice titled *Scalable Framework for
+Coastal Ocean Modeling Emulation*, NAICS 541512, looks like a plausible data
+engagement. Its description says NOAA intends to award sole-source to Fathom
+Science Inc. under FAR 6.103-1, and that the presolicitation exists to let other
+firms **object** within fifteen days — not bid. No code carries that fact.
 
-## Running it
+**Fetching is separate from scoring**, because a public SAM.gov key allows about
+ten requests a day. The trailing 7-day window is fetched once daily — six
+requests, one per NAICS code, since `ncode` takes a single code — and cached.
+Scoring runs against that cache and is itself cached per notice. Usage stays at
+six requests a day under any load, checkable at `/api/health`.
+
+**The tradeoff.** Descriptions cost a metered request each on the documented
+API; sixty notices would be sixty requests against a budget of ten. They come
+instead from sam.gov's own UI endpoint, which is unmetered and needs no
+credential. That endpoint is undocumented and can change without warning. The
+metered path stays wired as a fallback, and `test/description.test.mjs` pins the
+response shape against a real captured payload, so a change fails loudly in
+tests rather than quietly producing empty descriptions.
+
+**Known limitation.** SAM.gov is federal prime only — no state, local or
+education procurement, and bidding requires SAM registration. A small agency
+will find real work here, but not all of it is realistically winnable. Adding a
+local source is the obvious next step; the adapter layer is already shaped for it.
 
 ```bash
 npm install
-npm test              # normalizer + filter tests, no network, no API key
-npm run typecheck
-npm run dev           # Worker on localhost, serving the hand-written fixture
-
-# Once the SAM.gov key exists — run step zero BEFORE anything else:
-SAM_API_KEY=xxxx npm run step-zero
-SAM_API_KEY=xxxx npm run capture-fixture
+npm test          # 94 tests, no network and no API key
+npm run dev       # serves the fixture, spends nothing
+npm run score     # scores against the hand-labelled set in fixtures/labels.json
 ```
-
-`npm run step-zero` reports the real daily request budget off the response
-headers, the 7-day notice volume, and what a description actually costs. It
-spends at most 9 requests and applies the spec's decision gate itself.
-
-## Layout
-
-```
-src/
-  types.ts              internal Notice shape — nulls are load-bearing
-  config.ts             service area → NAICS, allowed notice types, size bands
-  sources/adapter.ts    SourceAdapter interface (source two costs a file)
-  sources/samgov.ts     SAM.gov implementation + normalizer
-  lib/filter.ts         hard constraints — the no-model half of the split
-  lib/window.ts         trailing 7-day window, UTC
-scripts/
-  step-zero.mjs         the volume + budget check. Run before building.
-  capture-fixture.mjs   one-time capture of real notices for offline work
-fixtures/
-  raw-sam-sample.json   hand-written awkward cases (tracked)
-  hand-written.json     generated from the above (tracked)
-  notices-sample.json   real capture (gitignored — large, churns daily)
-```
-
-## Known limitation
-
-SAM.gov is federal prime only — no state, local, or education procurement.
-Federal contracting requires SAM registration and often set-aside status, which
-is a stretch for a 15-person agency. This is stated plainly rather than hidden;
-adding a local source is the fix, and the adapter layer is already shaped for it.

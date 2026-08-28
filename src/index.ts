@@ -190,15 +190,31 @@ async function scan(url: URL, env: Env): Promise<Response> {
   unscored.sort((a, b) => (a.postedDate < b.postedDate ? 1 : -1));
   const toScore = unscored.slice(0, MAX_COLD_SCORES_PER_REQUEST);
 
-  for (const notice of toScore) {
-    const description = await readDescription(notice, env);
-    try {
-      const result = await scoreNotice({ ...notice, description }, model, glossary);
-      await scores.put(notice.noticeId, result);
-      scored.push({ notice, result });
-    } catch {
+  // Read in parallel, in bounded batches.
+  //
+  // These were sequential, and a cold scan took over a minute — fourteen
+  // notices at one to three model calls each, strictly one after another,
+  // against a stated success criterion of five seconds. The calls are
+  // independent; serialising them bought nothing.
+  //
+  // Bounded rather than unbounded because a burst of 40 simultaneous requests
+  // to one API is how you discover its rate limit in production. Six at a time
+  // turns ~60s into ~10s and stays polite.
+  const CONCURRENCY = 6;
+  for (let i = 0; i < toScore.length; i += CONCURRENCY) {
+    const batch = toScore.slice(i, i + CONCURRENCY);
+    const settled = await Promise.allSettled(
+      batch.map(async (notice) => {
+        const description = await readDescription(notice, env);
+        const result = await scoreNotice({ ...notice, description }, model, glossary);
+        await scores.put(notice.noticeId, result);
+        return { notice, result };
+      }),
+    );
+    for (const outcome of settled) {
       // One notice failing must not fail the scan. It stays unread and gets
       // another chance on the next request.
+      if (outcome.status === 'fulfilled') scored.push(outcome.value);
     }
   }
 
@@ -376,8 +392,10 @@ function json(body: unknown, status = 200): Response {
     status,
     headers: {
       'content-type': 'application/json; charset=utf-8',
-      // The frontend is served from Pages, a different origin from the Worker.
-      'access-control-allow-origin': '*',
+      // No CORS header. The page is served by this same Worker, so it is
+      // same-origin and does not need one. Leaving `*` here would let any site
+      // call an endpoint that spends model tokens — a small abuse surface with
+      // nothing to buy it.
     },
   });
 }

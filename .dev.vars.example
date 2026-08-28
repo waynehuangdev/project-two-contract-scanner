@@ -1,4 +1,46 @@
-# Copy to .dev.vars for local `wrangler dev`. Never commit .dev.vars.
-# In production these are Worker secrets: `wrangler secret put SAM_API_KEY`
+# Copy to .dev.vars for local `wrangler dev`. NEVER commit .dev.vars — it is
+# gitignored. In production these are Worker secrets:
+#
+#   wrangler secret put SAM_API_KEY
+#   wrangler secret put ANTHROPIC_API_KEY
+#
+# Note that `wrangler dev` works with neither of these set: the Worker falls
+# back to the bundled fixture in fixtures/hand-written.json. That is the mode to
+# develop the frontend in, because a cold local cache otherwise spends six
+# SAM.gov requests out of roughly ten per day on every fresh session.
+
+# ---------------------------------------------------------------------------
+# SAM_API_KEY
+#
+# sam.gov → sign in (via Login.gov) → Account Details → Public API Key.
+# Displayed once — paste it into a password manager before navigating away.
+# No entity registration needed; a personal account is enough.
+#
+# Two things that cost an hour each on day one:
+#
+#   1. The working endpoint is  https://api.sam.gov/prod/opportunities/v2/search
+#      The documented form WITHOUT /prod/ returns 404. `npm run probe` resolves
+#      this empirically rather than trusting either.
+#
+#   2. cmd.exe's `set SAM_API_KEY="abc"` stores the QUOTES as part of the value.
+#      A 40-character key becomes 42 and api.data.gov rejects it with a bare
+#      404 — indistinguishable from a dead endpoint. Use no quotes in cmd, or
+#      use PowerShell, where $env:SAM_API_KEY="abc" does the right thing.
+#      `src/lib/apiKey.ts` strips them and warns, but the shell is the real fix.
+#
+# Budget: roughly 10 requests/day on a public key, and api.data.gov sends no
+# X-RateLimit headers on this endpoint, so the only visibility is the counter
+# this Worker keeps itself — see /api/health.
 SAM_API_KEY=
+
+# ---------------------------------------------------------------------------
+# ANTHROPIC_API_KEY
+#
+# console.anthropic.com → API keys. Set a hard spend limit while you are there;
+# it takes two minutes and is the difference between a bad night and a bad month.
+#
+# Used by the Worker for scoring, and by `npm run score` — the offline harness
+# that measures the prompt against fixtures/labels.json. The harness is where
+# prompt changes should be evaluated; it needs this key but no SAM.gov key,
+# because it hydrates descriptions through the deployed Worker.
 ANTHROPIC_API_KEY=

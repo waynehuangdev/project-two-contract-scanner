@@ -188,9 +188,10 @@
 </div>
 
 <script>
-const API = window.location.hostname === 'localhost'
-  ? 'http://localhost:8787'
-  : 'https://contract-scanner.huauangdel.workers.dev';
+// Same origin. The Worker serves this page and its own /api/* routes, so
+// there is no host to hardcode and nothing to keep in sync — `wrangler dev`
+// and production both just work.
+const API = '';
 
 const out = document.getElementById('out');
 const areaSel = document.getElementById('area');

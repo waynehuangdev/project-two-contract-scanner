@@ -213,3 +213,23 @@ test('manufactured doubt is called out as a fabrication, like an invented figure
 test('a nameable condition is required for the middle band', () => {
   assert.match(SYSTEM_PROMPT, /If you cannot name the condition in a few words, you are hedging/);
 });
+
+test('disqualifiers must actually disqualify', () => {
+  // One run listed "Small Business Set Aside — excludes large primes, but this
+  // is not a disqualifier for a small firm" *in the disqualifiers array*. The
+  // field is exposed through the API, so it has to hold stated bars only.
+  const d = SCORE_SCHEMA.properties.disqualifiers.description;
+  assert.match(d, /EVERY ENTRY MUST ACTUALLY BAR SOMEONE/);
+  assert.match(d, /leave it out/);
+  assert.match(d, /plain small-business set-aside/);
+});
+
+test('an area justification must judge the area, not restate the reading', () => {
+  // Three rows of one notice returned the identical sentence — the reading with
+  // no per-area judgement attached.
+  const areas = SCORE_SCHEMA.properties.areas.properties;
+  for (const area of Object.keys(areas)) {
+    assert.match(areas[area].properties.justification.description,
+      /not a restatement of the reading/);
+  }
+});

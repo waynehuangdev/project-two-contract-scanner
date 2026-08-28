@@ -11,14 +11,36 @@
   "workers_dev": true,
   "preview_urls": false,
 
+  /*
+   * The frontend is served by this Worker, not by Cloudflare Pages.
+   *
+   * The spec called for static-on-Pages plus a separate Worker API, which was
+   * the right shape before Workers could serve assets. Two deployments meant
+   * two URLs, a hardcoded cross-origin API address in the page, a CORS header,
+   * and two things that could drift out of sync.
+   *
+   * One deployment instead: `/` serves public/index.html, `/api/*` is handled
+   * by the Worker's fetch handler, and the page calls its own origin. The
+   * definition of done is a single URL, so a single deployment is the honest
+   * way to reach it.
+   *
+   * `run_worker_first` on /api/* matters: without it the asset server answers
+   * first and an /api path that happens to match no file 404s before the
+   * Worker ever sees it.
+   */
+  "assets": {
+    "directory": "./public",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*"]
+  },
+
   "kv_namespaces": [
     // The pooled 7-day notice window, plus the daily SAM.gov call counter.
     { "binding": "NOTICES", "id": "909f28cd74554e56965b73500213e926" },
-    // Model scores, keyed (notice_id, profile_hash). Populated from Day 3.
+    // Model scores and the term glossary, both keyed by notice/term alone.
     { "binding": "SCORES", "id": "4003c1ba7ed946589dd7167bdb8e7872" },
-    // Per-IP scan counts. Bound now so the optional rate limiting is a
-    // drop-in on Day 4 rather than a namespace-creation detour; nothing
-    // reads or writes it yet.
+    // Per-IP scan counts. Bound but unused — the optional rate limiting is a
+    // code change rather than a Cloudflare detour whenever it is wanted.
     { "binding": "RATELIMIT", "id": "bab62d19cd594460b7557ed461e508da" }
   ],
 

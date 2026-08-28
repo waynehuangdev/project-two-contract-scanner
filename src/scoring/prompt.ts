@@ -58,7 +58,9 @@ const AREA_SCORE = {
       type: 'string',
       maxLength: 240,
       description:
-        'One sentence citing something SPECIFIC from this notice. "Matches your service area" is a failure. ' +
+        'Why the work does or does not fit THIS service area specifically — not a restatement of the reading. ' +
+        'One sentence citing something concrete from the notice. If all three of your justifications would ' +
+        'read the same, you have described the notice instead of judging the fit. ' +
         'For 50-79, name the single condition that would make it winnable.',
     },
   },
@@ -80,10 +82,13 @@ export const SCORE_SCHEMA = {
       type: 'array',
       items: { type: 'string' },
       description:
-        'Things stated IN THE TEXT that bar an outside bidder: a named sole source, a proprietary product, ' +
+        'Things STATED IN THE TEXT that bar an outside bidder: a named sole source, a proprietary product, ' +
         'required clearance, a specific certification, physical or on-site work, prime-only scale. ' +
         'Quote or paraphrase the notice. Empty array if none — an empty array is a common and correct answer. ' +
-        'Do NOT list ordinary competition, missing attachments, past-performance requirements or short deadlines.',
+        'EVERY ENTRY MUST ACTUALLY BAR SOMEONE. If you would have to write "but this is not a disqualifier", ' +
+        'leave it out. If it is your inference rather than the notice\'s words, leave it out. ' +
+        'Do NOT list ordinary competition, missing attachments, past-performance requirements, short deadlines, ' +
+        'or a plain small-business set-aside (which helps a small firm rather than barring it).',
     },
     areas: {
       type: 'object',
