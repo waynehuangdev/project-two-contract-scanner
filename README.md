@@ -42,7 +42,7 @@ local source is the obvious next step; the adapter layer is already shaped for i
 
 ```bash
 npm install
-npm test          # 94 tests, no network and no API key
+npm test          # 95 tests, no network and no API key
 npm run dev       # serves the fixture, spends nothing
 npm run score     # scores against the hand-labelled set in fixtures/labels.json
 ```

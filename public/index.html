@@ -131,16 +131,35 @@
   .state p { margin: 0 0 .8rem; color: var(--muted); font-size: .97rem; }
   .state code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .85rem; }
 
+  /*
+   * The loading line. A first visit reads every unread notice through the
+   * model, which takes real seconds, and an unexplained wait reads as a broken
+   * page. So the wait is narrated: what is happening, and over how many
+   * notices, updated as soon as the hard filters answer — long before the
+   * scores do.
+   */
+  .loading {
+    display: flex; align-items: center; gap: .6rem;
+    margin: 0 0 1.1rem; min-height: 1.5rem;
+    color: var(--muted); font-size: .95rem;
+  }
+  .spin {
+    flex: none; width: .85rem; height: .85rem; border-radius: 50%;
+    border: 2px solid var(--line); border-top-color: var(--muted);
+    animation: spin .8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg) } }
+
   .skeleton { display: grid; gap: 1.6rem; padding-top: .5rem; }
   .skeleton div {
     height: 4.6rem; border-radius: 8px; background: var(--surface);
     border: 1px solid var(--line-soft); animation: pulse 1.5s ease-in-out infinite;
   }
-  .skeleton div:nth-child(2) { animation-delay: .12s; }
-  .skeleton div:nth-child(3) { animation-delay: .24s; }
-  .skeleton div:nth-child(4) { animation-delay: .36s; }
   @keyframes pulse { 0%,100% { opacity: .45 } 50% { opacity: .8 } }
-  @media (prefers-reduced-motion: reduce) { .skeleton div { animation: none } }
+  @media (prefers-reduced-motion: reduce) {
+    .skeleton div { animation: none }
+    .spin { animation: none; border-top-color: var(--line) }
+  }
 
   /* Safety net only. Not a mobile design — see the note at the top. */
   @media (max-width: 60rem) {
@@ -228,8 +247,31 @@ async function loadMeta() {
   }
 }
 
-function skeleton() {
-  out.innerHTML = `<div class="skeleton"><div></div><div></div><div></div><div></div></div>`;
+/**
+ * The loading state. Two things are on screen: a status line saying what is
+ * being waited on, and placeholder rows roughly where the results will land.
+ *
+ * `count` is the number of notices the hard filters matched, once that is
+ * known. Drawing that many placeholders — capped, since eight is already
+ * "a lot" to the eye and thirty is just noise — means the page stops being a
+ * blank rectangle before the first score exists.
+ */
+function loading(status, count) {
+  const rows = Math.min(Math.max(count || 4, 3), 8);
+  const bars = Array.from({ length: rows }, (_, i) =>
+    `<div style="animation-delay:${(i * 0.12).toFixed(2)}s"></div>`).join('');
+  out.innerHTML =
+    `<p class="loading"><span class="spin" aria-hidden="true"></span>
+       <span class="loading-text">${esc(status)}</span></p>
+     <div class="skeleton">${bars}</div>`;
+}
+
+// Updates the status line in place. Replacing the whole block would restart the
+// skeleton's animation on every message, which reads as a page that keeps
+// starting over rather than one making progress.
+function setStatus(text) {
+  const el = out.querySelector('.loading-text');
+  if (el) el.textContent = text;
 }
 
 /**
@@ -341,15 +383,71 @@ function render(data) {
   out.innerHTML = banners.join('') + verdict + `<ol class="results">${rows}</ol>`;
 }
 
+// A scan now has two awaits in it, so a second one can start while the first is
+// mid-flight — change the area twice quickly and the slower response would land
+// last and win. Only the newest run is allowed to touch the page.
+let runToken = 0;
+let statusTimers = [];
+const clearStatusTimers = () => { statusTimers.forEach(clearTimeout); statusTimers = []; };
+
+/**
+ * Two phases, deliberately in series.
+ *
+ * Phase one is `/api/notices`: the same hard filters, no model calls. It
+ * answers in the time of a KV read once the pool is warm, which gives the real
+ * matched count — and therefore an honestly-sized skeleton and a status line
+ * with a number in it — seconds before any score exists.
+ *
+ * In series rather than in parallel because on a cold pool both endpoints would
+ * otherwise race to fill it from SAM.gov, against a budget of roughly ten calls
+ * a day. Running notices first means scan finds the pool already warm.
+ */
 async function scan() {
-  skeleton();
+  const token = ++runToken;
+  clearStatusTimers();
+  loading('Checking the last seven days of notices…');
+
   const params = new URLSearchParams({ area: areaSel.value, setAside: setAsideSel.value });
+
+  let matched = null;
+  try {
+    const res = await fetch(`${API}/api/notices?${params}`);
+    const pre = await res.json();
+    if (token !== runToken) return;
+    if (res.ok && !pre.error && typeof pre.matched === 'number') {
+      matched = pre.matched;
+      // Nothing matched the filters — no notice to read, so no reason to spend
+      // a scan finding that out a second time.
+      if (matched === 0) return empty(areaSel.selectedOptions[0]?.textContent ?? 'matching');
+      loading(`${matched} ${matched === 1 ? 'notice' : 'notices'} matched · reading them now`, matched);
+    }
+  } catch {
+    // Phase two reports a failure properly, with the state built for it. A
+    // preflight that fell over is not worth its own error message.
+  }
+  if (token !== runToken) return;
+
+  // A warm profile returns immediately and these never fire. They exist for the
+  // first visit, where silence past ten seconds is indistinguishable from a
+  // hang — so the page says what it is doing and why it ends.
+  statusTimers = [
+    setTimeout(() => setStatus(matched
+      ? `Reading ${matched} ${matched === 1 ? 'notice' : 'notices'} in full — this part is the work.`
+      : 'Reading each notice in full — this part is the work.'), 9000),
+    setTimeout(() => setStatus(
+      'A first visit is the slow one. Each notice is read once and cached, so this gets quicker.'), 22000),
+  ];
+
   try {
     const res = await fetch(`${API}/api/scan?${params}`);
     const data = await res.json();
+    if (token !== runToken) return;
+    clearStatusTimers();
     if (!res.ok || data.error) return failed(data.error);
     render(data);
   } catch (err) {
+    if (token !== runToken) return;
+    clearStatusTimers();
     failed(err.message);
   }
 }

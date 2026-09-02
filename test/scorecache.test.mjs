@@ -9,6 +9,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { ScoreCache, MAX_COLD_SCORES_PER_REQUEST } from '../src/scoring/cache.ts';
+import { NOTICE_TTL_SECONDS } from '../src/lib/retention.ts';
 
 function memoryKV() {
   const store = new Map();
@@ -71,4 +72,17 @@ test('a miss is null rather than a thrown error', async () => {
 test('the cold-read cap leaves room under the 50-subrequest ceiling', () => {
   // 6 SAM.gov calls + 14 notices x up to 3 model calls = 48. Tight but inside.
   assert.ok(MAX_COLD_SCORES_PER_REQUEST * 3 + 6 <= 50);
+});
+
+test('score entries carry a 90-day expiry so the store cannot grow forever', async () => {
+  // Without this the store gains ~100 entries a week indefinitely, for scores
+  // nothing reads again once the notice leaves the 7-day window.
+  const kv = memoryKV();
+  const opts = [];
+  const spy = { ...kv, async put(k, v, o) { opts.push(o); return kv.put(k, v, o); } };
+  await new ScoreCache(spy).put('n1', result());
+
+  assert.equal(opts.length, 1);
+  assert.equal(opts[0]?.expirationTtl, NOTICE_TTL_SECONDS);
+  assert.equal(NOTICE_TTL_SECONDS, 90 * 24 * 60 * 60);
 });

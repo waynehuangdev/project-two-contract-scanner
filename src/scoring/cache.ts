@@ -1,4 +1,5 @@
 import type { ScoreResult } from './score.ts';
+import { NOTICE_TTL_SECONDS } from '../lib/retention.ts';
 
 /**
  * The score cache.
@@ -47,9 +48,14 @@ export class ScoreCache {
   }
 
   async put(noticeId: string, result: ScoreResult): Promise<void> {
-    // No expiry. A notice's text is fixed, and the prompt version is in the key,
-    // so an entry stays valid until the notice ages out and nothing asks again.
-    await this.kv.put(this.key(noticeId), JSON.stringify(result));
+    // Expires after 90 days. The prompt version in the key handles CORRECTNESS
+    // — a prompt change retires stale judgements immediately. The TTL handles
+    // SIZE: without it the store grows by a hundred notices a week forever,
+    // for scores nothing will read again once the notice leaves the 7-day
+    // window. See lib/retention.ts.
+    await this.kv.put(this.key(noticeId), JSON.stringify(result), {
+      expirationTtl: NOTICE_TTL_SECONDS,
+    });
   }
 }
 

@@ -8,6 +8,7 @@ import { ScoreCache, MAX_COLD_SCORES_PER_REQUEST } from './scoring/cache.ts';
 import { KVGlossary } from './scoring/glossary.ts';
 import { WORTH_READING_MIN } from './scoring/prompt.ts';
 import { SAM_UI_OPPORTUNITY_URL } from './lib/endpoint.ts';
+import { NOTICE_TTL_SECONDS } from './lib/retention.ts';
 import type { Notice, Profile, ServiceArea, SetAsidePreference, SizeBand } from './types.ts';
 
 export interface Env {
@@ -24,7 +25,7 @@ export interface Env {
  *
  *   /api/health       diagnostics, including SAM.gov calls spent today
  *   /api/meta         service areas and defaults, so the page cannot drift
- *   /api/description  one notice's text, cached forever — the unmetered path
+ *   /api/description  one notice's text, cached 90 days — the unmetered path
  *   /api/notices      hard-filtered pool, unscored
  *   /api/scan         the product: filtered, read, judged, ranked
  */
@@ -45,7 +46,7 @@ export default {
     }
 
     /**
-     * Description text for one notice, cached permanently.
+     * Description text for one notice, cached for 90 days.
      *
      * Descriptions come from sam.gov's own UI host, which costs no SAM.gov
      * quota — the entire reason the project is viable. Verified reachable from
@@ -53,9 +54,11 @@ export default {
      * request was refused from a laptop with ECONNRESET at the TLS layer. The
      * difference is the edge, not the headers, and no spoofing is involved.
      *
-     * Cached forever by noticeId: a notice version's text never changes, and
-     * an amendment arrives as a new noticeId. So this is spent once per notice
-     * in the tool's lifetime.
+     * Cached by noticeId: a notice version's text never changes, and an
+     * amendment arrives as a new noticeId, so this is spent once per notice.
+     * The 90-day expiry is about store size rather than correctness — see
+     * lib/retention.ts. The scanner only ever reads a trailing 7-day window,
+     * so anything older is already unreachable.
      *
      * Also the primitive the offline scoring harness hydrates through, since a
      * laptop cannot reach the upstream directly.
@@ -80,7 +83,7 @@ export default {
         return json({ noticeId, description: null, cached: false, error: 'upstream unavailable' }, 502);
       }
 
-      await env.NOTICES.put(key, text);
+      await env.NOTICES.put(key, text, { expirationTtl: NOTICE_TTL_SECONDS });
       return json({ noticeId, description: text, cached: false });
     }
 
@@ -263,7 +266,7 @@ async function readDescription(notice: Notice, env: Env): Promise<string | null>
   if (cached !== null) return cached || null;
 
   const text = await fetchDescription(notice.noticeId);
-  if (text !== null) await env.NOTICES.put(key, text);
+  if (text !== null) await env.NOTICES.put(key, text, { expirationTtl: NOTICE_TTL_SECONDS });
   return text;
 }
 
